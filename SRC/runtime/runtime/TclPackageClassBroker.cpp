@@ -186,6 +186,7 @@ using namespace OpenSees::Hash::literals;
 #include "UWmaterials/ManzariDafaliasPlaneStrainRO.h"
 #include "UWmaterials/PM4Sand.h"
 #include "UWmaterials/PM4Silt.h"
+#include "RIVASand/RIVASand.h"
 #include "J2CyclicBoundingSurface.h"
 #include "J2CyclicBoundingSurface3D.h"
 #include "J2CyclicBoundingSurfacePlaneStrain.h"
@@ -1312,6 +1313,9 @@ TclPackageClassBroker::getNewNDMaterial(int classTag)
 
   case ND_TAG_PM4Silt:
     return new PM4Silt();
+
+  case ND_TAG_RIVASand:
+    return new RIVASand();
 
   case ND_TAG_J2CyclicBoundingSurface:
     return new J2CyclicBoundingSurface();
