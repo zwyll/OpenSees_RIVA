@@ -110,6 +110,9 @@
     <Filter Include="nD\UWmaterials">
       <UniqueIdentifier>{e764b8c8-af42-4b82-8709-56ac255f2b0c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="nD\RIVASand">
+      <UniqueIdentifier>{9022bd95-dfc3-41eb-9fc6-0cabf71a5408}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\SRC\material\uniaxial\AxialSp.cpp">
@@ -1355,6 +1358,9 @@
     <ClCompile Include="..\..\..\SRC\material\nD\UWmaterials\LinearElasticGGmax.cpp">
       <Filter>nD\UWmaterials</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\SRC\material\nD\RIVASand\RIVASand.cpp">
+      <Filter>nD\RIVASand</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\SRC\material\nD\UVCmultiaxial.cpp">
       <Filter>nD</Filter>
     </ClCompile>
@@ -2581,6 +2587,12 @@
     </ClInclude>
     <ClInclude Include="..\..\..\SRC\material\nD\UWmaterials\LinearElasticGGmax.h">
       <Filter>nD\UWmaterials</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\SRC\material\nD\RIVASand\RIVASand.h">
+      <Filter>nD\RIVASand</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\SRC\material\nD\RIVASand\RIVASandKernel.h">
+      <Filter>nD\RIVASand</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\SRC\material\nD\UVCmultiaxial.h">
       <Filter>nD</Filter>

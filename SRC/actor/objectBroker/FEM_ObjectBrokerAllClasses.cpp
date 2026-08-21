@@ -301,6 +301,7 @@
 #include "UANDESmaterials/SAniSandMSPlaneStrain.h"
 #include "UWmaterials/PM4Sand.h"
 #include "UWmaterials/PM4Silt.h"
+#include "RIVASand/RIVASand.h"
 #include "J2CyclicBoundingSurface.h"
 #include "J2CyclicBoundingSurface3D.h"
 #include "J2CyclicBoundingSurfacePlaneStrain.h"
@@ -2363,6 +2364,9 @@ FEM_ObjectBrokerAllClasses::getNewNDMaterial(int classTag)
 
   case ND_TAG_PressureDependMultiYield03:
     return new PressureDependMultiYield03();
+
+  case ND_TAG_RIVASand:
+    return new RIVASand();
 	
   case ND_TAG_PressureIndependMultiYield:
     return new PressureIndependMultiYield();
