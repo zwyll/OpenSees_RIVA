@@ -31,6 +31,8 @@
 #include <ElementIter.h>
 #include <Channel.h>
 
+#include <cstdio>
+
 MaterialStageParameter::MaterialStageParameter(int theTag, int materialTag)
 :Parameter(theTag, PARAMETER_TAG_MaterialStageParameter),
  theMaterialTag(materialTag)
@@ -62,25 +64,27 @@ MaterialStageParameter::setDomain(Domain *theDomain)
   Element *theEle;
   ElementIter &theEles = theDomain->getElements();
 
-  int theResult = -1;
+  int numberOfMatchingElements = 0;
 
   const char *theString[2];// = new const char*[2];
   char parameterName[21];
-  char materialIdTag[10];
-  sprintf(parameterName,"updateMaterialStage");
-  sprintf(materialIdTag,"%d",theMaterialTag);
+  char materialIdTag[32];
+  std::snprintf(parameterName, sizeof(parameterName),
+                "updateMaterialStage");
+  std::snprintf(materialIdTag, sizeof(materialIdTag), "%d", theMaterialTag);
   theString[0] = parameterName;
   theString[1] = materialIdTag;
 
-  // note because of the way this parameter is updated only need to find one in the domain
-  while (((theEle = theEles()) != 0) && (theResult == -1)) {
-    theResult = theEle->setParameter(theString, 2, *this);
+  // Legacy soil models commonly store stage globally, so stopping after the
+  // first matching element appeared sufficient. Materials with element-local
+  // copies must register every matching element with this Parameter.
+  while ((theEle = theEles()) != 0) {
+    if (theEle->setParameter(theString, 2, *this) != -1)
+      numberOfMatchingElements++;
   }
 
-  if (theResult == -1)
+  if (numberOfMatchingElements == 0)
     opserr << "WARNING: MaterialStageParameter::setDomain() - no effect with material tag " << theMaterialTag << endln;
-
-  theResult = 0;
 
   return;
 }
