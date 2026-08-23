@@ -1,0 +1,173 @@
+{
+  "bundle_schema_version": 1,
+  "cases": [
+    {
+      "case_id": "cyclic_zero_bias_reference",
+      "description": "Two undrained reference-density cycles without static shear bias",
+      "dt_s": 0.001,
+      "file": "cyclic_zero_bias_reference.csv",
+      "final_amplitude_reversals": 4,
+      "host_increments": 64,
+      "initialization": {
+        "K0": 0.485,
+        "static_shear_ratio": 0.0,
+        "vertical_effective_stress_kpa": 40.0,
+        "void_ratio": 0.601
+      },
+      "maximum_ru_vertical": 0.956837120423051,
+      "nsub": 1,
+      "rows_including_initial_state": 65
+    },
+    {
+      "case_id": "cyclic_bias025_reference",
+      "description": "Two undrained reference-density cycles with alpha_static=0.25",
+      "dt_s": 0.001,
+      "file": "cyclic_bias025_reference.csv",
+      "final_amplitude_reversals": 4,
+      "host_increments": 64,
+      "initialization": {
+        "K0": 0.485,
+        "static_shear_ratio": 0.25,
+        "vertical_effective_stress_kpa": 40.0,
+        "void_ratio": 0.601
+      },
+      "maximum_ru_vertical": 0.9266749791801034,
+      "nsub": 1,
+      "rows_including_initial_state": 65
+    },
+    {
+      "case_id": "cyclic_bias0375_dense",
+      "description": "Two undrained dense cycles with alpha_static=0.375",
+      "dt_s": 0.001,
+      "file": "cyclic_bias0375_dense.csv",
+      "final_amplitude_reversals": 4,
+      "host_increments": 64,
+      "initialization": {
+        "K0": 0.485,
+        "static_shear_ratio": 0.375,
+        "vertical_effective_stress_kpa": 40.0,
+        "void_ratio": 0.536
+      },
+      "maximum_ru_vertical": 0.312748058377182,
+      "nsub": 1,
+      "rows_including_initial_state": 65
+    },
+    {
+      "case_id": "cyclic_bias025_four_substeps",
+      "description": "One biased cycle using four fixed constitutive substeps",
+      "dt_s": 0.001,
+      "file": "cyclic_bias025_four_substeps.csv",
+      "final_amplitude_reversals": 2,
+      "host_increments": 32,
+      "initialization": {
+        "K0": 0.485,
+        "static_shear_ratio": 0.25,
+        "vertical_effective_stress_kpa": 40.0,
+        "void_ratio": 0.601
+      },
+      "maximum_ru_vertical": 0.925172623505364,
+      "nsub": 4,
+      "rows_including_initial_state": 33
+    },
+    {
+      "case_id": "mixed_3d_bias015",
+      "description": "Nonproportional 3D tensor path with volumetric loading, all three shear planes, and resolved direction changes",
+      "dt_s": 0.0005,
+      "file": "mixed_3d_bias015.csv",
+      "final_amplitude_reversals": 3,
+      "host_increments": 40,
+      "initialization": {
+        "K0": 0.485,
+        "static_shear_ratio": 0.15,
+        "vertical_effective_stress_kpa": 40.0,
+        "void_ratio": 0.601
+      },
+      "maximum_ru_vertical": 0.8093188275992802,
+      "nsub": 2,
+      "rows_including_initial_state": 41
+    }
+  ],
+  "files": {
+    "cyclic_bias025_four_substeps.csv": {
+      "bytes": 45944,
+      "sha256": "584733a2271a9a8398ab4bbcf759fafc840c887666892c353fd3f60ece9cf650"
+    },
+    "cyclic_bias025_reference.csv": {
+      "bytes": 94506,
+      "sha256": "403a87d6bb736ee22b3caec47f02a6687dc0300c33ff12b151a5a46ff9a93a1f"
+    },
+    "cyclic_bias0375_dense.csv": {
+      "bytes": 94140,
+      "sha256": "9a54882a51d1cd2d91ba2d467deaffd2b9ff56c69152deba9905b69364d315d5"
+    },
+    "cyclic_zero_bias_reference.csv": {
+      "bytes": 90094,
+      "sha256": "fc8aa016ddcdf9afc71b7acd280ca73fcd745e29dc0ae955a68423b79ff6f5b0"
+    },
+    "mixed_3d_bias015.csv": {
+      "bytes": 59525,
+      "sha256": "6eee5e210c96e175170242b80bc7bbbb11cd25f61a78ccc6ae7709ccd02e4af1"
+    },
+    "reference_parameters.json": {
+      "bytes": 7876,
+      "sha256": "6a1658d47bc73e204376eb221fff6827c917bf9a805f9175ed70e2064af12976"
+    },
+    "state_schema.json": {
+      "bytes": 8163,
+      "sha256": "066106e49cf930cf781bf8f8fea0f8a25d9a8a7740fcecfb3e3df28f7ba97e43"
+    }
+  },
+  "floating_point_format": "IEEE-754 binary64; CSV values written with 17 significant digits",
+  "handoff_sources": {
+    "HERCULES_IMPLEMENTATION_GUIDE.md": {
+      "sha256": "27a6b8ac62af8260e86a1036f01104b5a7b0bea769cf5c05b83df85a009f3f9f"
+    },
+    "IMPLEMENTATION_CHECKLIST.md": {
+      "sha256": "e04756cd7ec70eed171b82d3d0769b9d794efb272f7b2eb19aec6590393abf85"
+    },
+    "PORTING_PROMPT.md": {
+      "sha256": "cb9d952577e4469402eda0dd06961c3b918c19fb3de6266e3312298bb11218f8"
+    },
+    "README.md": {
+      "sha256": "bd84c184ed3b6c3047a4c66ac55c23b08dac44ab35a79c1dfac251f9253561d1"
+    },
+    "RIVASAND_FORMULATION.md": {
+      "sha256": "df378126ae3c32aca06841fafb56e48924623ce7ce4023c9ece9e44cf4b8dd75"
+    },
+    "generate_golden_data.py": {
+      "sha256": "eb14fe800b160af29e1f72b8f1ec59132b468100ca8c78ac700dfd4490de9471"
+    },
+    "model.py": {
+      "sha256": "230d12ae207fbb1b8da9b7736b392633edb67ae369c6a9b062be91419d524b2d"
+    },
+    "reference.py": {
+      "sha256": "352dfe2515cf52333727d9dc47d914d0e6520b3ed2cc7ace806625ed2cf73313"
+    },
+    "strain_driver.py": {
+      "sha256": "25e52a9540d9e0f38f650b1d6679a4608e0518ae3688a486d44e9433edfe3fe6"
+    },
+    "verify_hercules_output.py": {
+      "sha256": "a2b6e4650429c8edeb72a708a38e42100e6419ea211f3dd09bf27ee8c42a7a59"
+    }
+  },
+  "model_version": "RIVA-Sand frozen calibration plus host-step reversal detector",
+  "rivasand_parameter_sha256": "9585f0c155c9444885c5115e7753a1a5d97c783e2c685938a49a65435c9e8f83",
+  "supplemental_files": {
+    "README.md": {
+      "bytes": 2245,
+      "sha256": "06c8668feeff962a5f7cc27ee843ef1bca0e8399155f29eb478ba3ed09829178"
+    },
+    "RIVASAND_VERIFICATION_INDEX.xlsx": {
+      "bytes": 19561,
+      "sha256": "6576d478f39be54615da636a413f778cc4db40d0bec823d513452ce238dfb439"
+    }
+  },
+  "tensor_component_order": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+  ]
+}
