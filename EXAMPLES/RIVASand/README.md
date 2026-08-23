@@ -21,7 +21,7 @@ The reference Ottawa F65 row is
 
 ```text
 Dr M kd h m zeta eMax eMin Q R nG
-0.662962962962963 1.25 1.125 122.44207260469 0.945 0.025 0.78 0.51 10 1.5 0.65
+0.662962962962963 1.25 1.125 122.44207260468994 0.945 0.025 0.78 0.51 10 1.5 0.65
 ```
 
 `Dr` is a fraction in `[0,1]`, not percent. The initial internal void ratio is
@@ -46,14 +46,14 @@ Options:
   unit. Use `1` for kPa and `1000` for Pa. Default `1`.
 - `-pMin`: optional **constitutive** minimum mean effective pressure, in the
   current stress unit. It is used by the explicit stress update and therefore
-  changes the response. The frozen V8 default remains `0.001 kPa` times
+  changes the response. The frozen RIVA-Sand default remains `0.001 kPa` times
   `stressScale`.
 - `-tangentPMin`: minimum pressure used only to form the elastic tangent
-  returned to OpenSees. It does not change the V8 stress update. The default is
-  `p_ref/200` (`0.5065 kPa` when `stressScale=1`) and is never allowed below
-  `-pMin`.
-- `-stage`: `0` for elastic gravity/geostatic setup and `1` for V8 dynamics.
-  Default `0`.
+  returned to OpenSees. It does not change the RIVA-Sand stress update. The
+  default is `p_ref/200` (`0.5065 kPa` when `stressScale=1`) and is never
+  allowed below `-pMin`.
+- `-stage`: `0` for elastic gravity/geostatic setup and `1` for RIVA-Sand
+  dynamics. Default `0`.
 - `-initialStress`: direct material-point initialization in OpenSees stress
   order. Supplying it without `-stage` selects stage 1.
 
@@ -88,7 +88,7 @@ end-of-gravity vertical effective-stress reference.
 
 ## Tangent and analysis type
 
-V8 is integrated explicitly inside the material. Stage 1 returns its current
+RIVA-Sand is integrated explicitly inside the material. Stage 1 returns its current
 pressure/state-dependent elastic tangent, not a consistent algorithmic
 elastoplastic tangent. This is suitable for explicit or transient workflows
 where the constitutive substep is the intended integration scheme. A strongly
@@ -122,6 +122,9 @@ The material accepts these response names:
 
 ## Files and verification
 
+- [`RIVASand_USER_GUIDE.md`](RIVASand_USER_GUIDE.md) is the user-facing
+  command, parameter, units, initialization, recorder, and calibrated-values
+  guide. It intentionally omits constitutive equations.
 - `RIVASand_material_point.tcl` drives the zero-bias, two-cycle reference
   history through a homogeneous `bbarBrick`, thereby testing the production
   OpenSees element/material interface as well as the adapter.

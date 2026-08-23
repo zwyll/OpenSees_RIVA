@@ -1,6 +1,6 @@
 # Golden verification data
 
-These files are deterministic material-point results from the standalone V8
+These files are deterministic material-point results from the standalone RIVA-Sand
 kernel with its host-step reversal detector enabled.  They are intended to
 verify a native Hercules implementation increment by increment.
 
