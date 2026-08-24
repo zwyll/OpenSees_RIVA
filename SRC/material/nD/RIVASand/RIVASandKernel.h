@@ -91,22 +91,20 @@ typedef struct riva_parameters_t {
     double bias_reversible_volume_bias_exponent;
     double bias_reversible_volume_pressure_exponent;
     double bias_reversible_volume_buildup_reversals;
-    /* V9 plastic-activity gate: the reversible-volume response is scaled by
-       smoothstep(ep_half_last/ep_ref) — the plastic multiplier of the last
-       completed half-cycle. Without it the phase normalization by
-       cyclic_amplitude makes the oscillation swing full-size at ANY
-       amplitude: micro-cycles on a statically biased point pump the
-       confining stress without bound (sigma'_v 25 -> 13.5/47.8 kPa in five
-       5-Pa cycles). ep_ref sits below every calibrated half-cycle's plastic
-       multiplier (golden floor 3.4e-5), so the gate is exactly 1.0 on every
-       calibrated path and the frozen oracle is preserved bit-for-bit. */
-    double bias_reversible_volume_ep_ref;
-    /* stress-amplitude gate (kept alongside the plastic gate: the plastic
-       gate alone cannot block small-stress-amplitude PLASTIC cycling, which
-       slope states produce during gravity redistribution). Discriminant is
-       amp*anchor/p_current; window below the golden floor of 0.5375. */
-    double bias_reversible_volume_amplitude_onset;
-    double bias_reversible_volume_amplitude_full;
+    /* V9 PROPORTIONAL amplitude consistency (breaks V8 bit-lock — oracle
+       re-frozen): the reversible-volume response scales LINEARLY with the
+       plastic multiplier of the last completed half-cycle,
+       min(1, ep_half_last/ep_cal) — PM4Sand/SANISAND-style: elastic or
+       weakly-plastic cycles drive proportionally little volume. ep_cal sits
+       below the normal calibrated half-cycles (1.6e-3..6.7e-3), so only
+       weak-plasticity half-cycles are rescaled. */
+    double bias_reversible_volume_ep_cal;
+    /* V9 bias-factor knee: (ref/bias)^2 diverges as bias -> 0, overdriving
+       gentle-slope states ~11x above the calibrated envelope. At and above
+       the knee the frozen expression applies; below it the factor fades
+       linearly to zero (peak (ref/knee)^2 = 4.64 at knee 0.30, the same
+       scale as the calibrated bias025 case). */
+    double bias_reversible_volume_bias_knee;
     /* Low-pressure fade. The calibrated envelope anchors at ~26 kPa; at low
        pressure anchors the fixed volumetric amplitude becomes comparable to
        the confinement (small bulk modulus), so the whole response fades with
@@ -278,9 +276,8 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.bias_reversible_volume_bias_exponent=2.0;
     p.bias_reversible_volume_pressure_exponent=0.22;
     p.bias_reversible_volume_buildup_reversals=6.0;
-    p.bias_reversible_volume_ep_ref=1.5e-5;
-    p.bias_reversible_volume_amplitude_onset=0.12;
-    p.bias_reversible_volume_amplitude_full=0.35;
+    p.bias_reversible_volume_ep_cal=1.0e-3;
+    p.bias_reversible_volume_bias_knee=0.30;
     p.bias_reversible_volume_pressure_fade=12.0*stress_scale;
     p.bias_reversible_mean_scale=9.0e-5;
     p.bias_reversible_mean_transition_pressure=40.0*stress_scale;
@@ -882,17 +879,10 @@ RIVA_HD static inline double riva_bias_reversible_volume_target(
        on the current pressure (no p-collapse feedback loop). ep_ref sits
        below the golden floor (3.4e-5 in cyclic_bias0375_dense), so every
        calibrated evaluation saturates at exactly 1.0. */
-    const double plastic_gate=riva_smoothstep(
-        s->ep_half_last/p->bias_reversible_volume_ep_ref);
-    if (plastic_gate<=0.0) return 0.0;
-    const double amplitude_vs_p=s->cyclic_amplitude*
-        riva_max(s->pressure_anchor,p->p_min)/
-        riva_max(riva_pressure(s->stress),p->p_min);
-    const double amplitude_gate=plastic_gate*riva_smoothstep(
-        (amplitude_vs_p-p->bias_reversible_volume_amplitude_onset)/
-        (p->bias_reversible_volume_amplitude_full-
-         p->bias_reversible_volume_amplitude_onset));
-    if (amplitude_gate<=0.0) return 0.0;
+    /* V9: response proportional to the last half-cycle's plastic activity */
+    const double ep_scale=riva_min(1.0,
+        s->ep_half_last/p->bias_reversible_volume_ep_cal);
+    if (ep_scale<=0.0) return 0.0;
     const riva_tensor_t phase_direction=riva_scale(s->cyclic_direction,1.0/direction_norm);
     const riva_tensor_t current=riva_dev(s->stress);
     const riva_tensor_t static_dev=riva_add(s->geostatic_deviator,
@@ -900,8 +890,11 @@ RIVA_HD static inline double riva_bias_reversible_volume_target(
     const double dynamic_projection=riva_ddot(riva_sub(current,static_dev),phase_direction);
     const double phase=riva_clip(dynamic_projection/
         (s->pressure_anchor*s->cyclic_amplitude),-1.0,1.0);
-    const double bias_factor=pow(p->bias_reversible_volume_reference_bias/bias,
-                                 p->bias_reversible_volume_bias_exponent);
+    /* V9 knee: frozen expression at/above the knee, linear fade below */
+    const double bias_eff=riva_max(bias,p->bias_reversible_volume_bias_knee);
+    const double bias_factor=pow(p->bias_reversible_volume_reference_bias/bias_eff,
+                                 p->bias_reversible_volume_bias_exponent)*
+        riva_min(1.0,bias/p->bias_reversible_volume_bias_knee);
     const double pressure_factor=pow(riva_max(s->pressure_anchor,p->p_min)/
         p->bias_reference_pressure,p->bias_reversible_volume_pressure_exponent);
     const double oscillation_buildup=1.0-exp(-(double)s->amplitude_reversals/
@@ -920,7 +913,7 @@ RIVA_HD static inline double riva_bias_reversible_volume_target(
     const double lowp_fade=riva_smoothstep(
         riva_max(s->pressure_anchor,p->p_min)/
         p->bias_reversible_volume_pressure_fade);
-    return (oscillation+mean_shift)*amplitude_gate*lowp_fade;
+    return (oscillation+mean_shift)*ep_scale*lowp_fade;
 }
 
 RIVA_HD static inline double riva_bias_ratchet_activity(
