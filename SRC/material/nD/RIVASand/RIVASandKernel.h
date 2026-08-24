@@ -116,6 +116,41 @@ typedef struct riva_parameters_t {
     int32_t objective_reversal_enabled;
     double reversal_direction_cosine, reversal_strain_deadband;
     double reversal_stress_deadband_ratio;
+    /* Admit a committed stress ratio inherited from an external (e.g. elastic
+     * geostatic) phase that lies beyond the bounding surface: the projection
+     * limit becomes max(bound, |alpha_committed|), so the inherited overshoot
+     * is never snap-projected away in a single call (a finite stress jump for
+     * an infinitesimal strain increment, which breaks implicit equilibrium),
+     * while any FURTHER excursion beyond the inherited ratio is still capped.
+     * The overshoot decays only through the constitutive response itself.
+     * Default 0 preserves the frozen behavior bit-for-bit. */
+    int32_t admit_inherited_overbound;
+    /* Opt-in regularization: floor on the bounding-distance variable beta as
+     * used in the plastic hardening modulus (hardening = p*h_eff*beta^m).
+     * States at/beyond the bounding surface otherwise carry beta ~ 0 and a
+     * near-zero plastic modulus, which makes implicit equilibrium singular
+     * (SSI foundation-edge states under sustained static bias). The floor
+     * applies ONLY at the hardening use-site; beta's stored evolution is
+     * untouched. Scale: beta0 = 1e3 at each reversal; a floor of ~1 gives
+     * percent-level residual stiffness. Default 0 preserves the frozen
+     * behavior bit-for-bit. */
+    double beta_floor;
+    /* Opt-in PM4Sand-style additive hardening reserve: hardening becomes
+     * p*h_eff*(beta^m + beta_reserve^m), but ONLY at material points that
+     * have not yet registered a reversal (reversals == 0) — i.e. the
+     * monotonic stage-in segment where SSI foundation states approach the
+     * bounding surface and the plastic modulus would otherwise vanish
+     * (a hard floor fixes the value but keeps a kink; the additive form is
+     * smooth). After the first reversal the exact frozen formula applies,
+     * so cyclic calibration is untouched by construction. Default 0
+     * preserves the frozen behavior bit-for-bit. */
+    double beta_reserve;
+    /* Opt-in ceiling on mean effective stress. Garbage Newton trial strains
+     * (equilibrium exploration, not physics) otherwise produce astronomic
+     * pressures that push the linear solver into numerically fragile
+     * territory. Set far above any physical state (e.g. 50x overburden) so
+     * it binds only on doomed trials. Default 0 disables (frozen). */
+    double p_max;
 } riva_parameters_t;
 
 typedef struct riva_state_t {
@@ -244,6 +279,10 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.objective_reversal_enabled=1; p.reversal_direction_cosine=-0.20;
     p.reversal_strain_deadband=1.0e-12;
     p.reversal_stress_deadband_ratio=1.0e-4;
+    p.admit_inherited_overbound=0;
+    p.beta_floor=0.0;
+    p.beta_reserve=0.0;
+    p.p_max=0.0;
     return p;
 }
 
@@ -648,6 +687,7 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
             p,material,old->eps_v_confining+deps_v,
             old->pressure_anchor,&at_floor);
     } else p_trial=riva_max(p_t-bulk*deps_v,p->p_min);
+    if (p->p_max>0.0 && p_trial>p->p_max) p_trial=p->p_max;
     const riva_tensor_t alpha_trial=riva_scale(s_trial,1.0/riva_max(p_trial,p->p_min));
     const riva_tensor_t delta_alpha_trial=riva_sub(alpha_trial,old->alpha);
 
@@ -659,8 +699,21 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
     if (reversal) riva_register_reversal(p,old,&alpha0,&alpha01,&ep_eq,&beta_t,&reversals);
 
     const double alpha_n_t=riva_ddot(old->alpha,old->n);
-    const double hardening=p_t*h_eff*
-        pow(riva_max(beta_t,1.0e-12),material->m);
+    double hardening_beta=
+        pow(riva_max(beta_t,riva_max(p->beta_floor,1.0e-12)),material->m);
+    if (p->beta_reserve>0.0 && old->reversals==0) {
+        /* State-dependent gate: the reserve engages only when the committed
+         * stress ratio sits within 80% of the bounding surface — the regime
+         * where beta (and with it the plastic modulus) collapses. K0
+         * consolidation states (~70%) never engage it; wave-driven points
+         * engage it exactly when driven near the bound. Cyclic stages run
+         * with the reserve parameter zeroed by the host regardless. */
+        double mb_r,md_r,xi_r;
+        riva_surfaces(p,material,p_t,old->void_ratio,&mb_r,&md_r,&xi_r);
+        if (riva_norm(old->alpha)>0.8*sqrt(2.0/3.0)*mb_r)
+            hardening_beta+=pow(p->beta_reserve,material->m);
+    }
+    const double hardening=p_t*h_eff*hardening_beta;
     double denominator=2.0*shear+(2.0/3.0)*hardening-
         coupling_bulk*old->D*alpha_n_t;
     const double floor=p->denominator_floor_ratio*2.0*shear;
@@ -688,6 +741,7 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
         pressure=riva_max(p_t-bulk*(deps_v+d_lambda*(d_ir+d_re)),p->p_min);
         at_floor=pressure<=p->p_min;
     }
+    if (p->p_max>0.0 && pressure>p->p_max) pressure=p->p_max;
     riva_tensor_t stress=riva_sub(s,riva_iso(pressure));
     ep_eq += d_lambda;
     const double void_ratio=old->void_ratio+(1.0+old->void_ratio)*deps_v;
@@ -701,10 +755,24 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
     riva_surfaces(p,material,pressure,void_ratio,&mb,&md,&xi);
     (void)md; (void)xi;
     riva_tensor_t alpha=riva_scale(s,1.0/pressure);
-    const double alpha_limit=sqrt(2.0/3.0)*mb;
+    double alpha_limit=sqrt(2.0/3.0)*mb;
+    if (p->admit_inherited_overbound)
+        alpha_limit=riva_max(alpha_limit,riva_norm(old->alpha));
     const double alpha_norm=riva_norm(alpha);
     if (alpha_norm>alpha_limit) {
-        alpha=riva_scale(alpha,alpha_limit/alpha_norm);
+        double allowed=alpha_limit;
+        if (p->admit_inherited_overbound) {
+            /* C1-smooth cap: value- and slope-continuous at the limit,
+             * overshoot bounded by the band width. The hard snap leaves a
+             * derivative kink exactly where admitted over-bound states sit
+             * after their first commit (the raised limit equals the
+             * committed ratio), and implicit equilibrium chatters on that
+             * kink. Gated: the frozen path keeps the hard snap bit-exact. */
+            const double band=0.02*alpha_limit;
+            const double excess=alpha_norm-alpha_limit;
+            allowed=alpha_limit+band*(1.0-exp(-excess/band));
+        }
+        alpha=riva_scale(alpha,allowed/alpha_norm);
         s=riva_scale(alpha,pressure); stress=riva_sub(s,riva_iso(pressure));
     }
     const riva_tensor_t offset=riva_sub(alpha,alpha0);
@@ -942,10 +1010,17 @@ RIVA_HD static inline int riva_host_reversal(const riva_parameters_t *p,
         riva_max(s->pressure_anchor,p->p_min);
 }
 
-RIVA_HD static inline int riva_update_material(const riva_parameters_t *p,
+/* reversal_override: -1 = detect from the committed state and this increment
+ * (the original behavior, bit-identical); 0/1 = force the reversal decision.
+ * The override exists so an implicit host can LATCH the decision made on the
+ * first trial of an equilibrium increment and reuse it for later Newton
+ * iterations of the same increment: re-detecting per trial makes the response
+ * branch flip between iterations, and near a high static shear bias the two
+ * branches differ enough that Newton limit-cycles instead of converging. */
+RIVA_HD static inline int riva_update_material_ex(const riva_parameters_t *p,
     const riva_material_parameters_t *material,riva_tensor_t deps,
     int32_t fixed_substeps,riva_state_t *state,riva_tensor_t *stress_new,
-    riva_update_info_t *info)
+    riva_update_info_t *info,int32_t reversal_override)
 {
     if (!state || !state->initialized || fixed_substeps<1 ||
         !riva_material_parameters_valid(p,material) ||
@@ -962,7 +1037,8 @@ RIVA_HD static inline int riva_update_material(const riva_parameters_t *p,
     const riva_tensor_t direction=p->objective_reversal_enabled?
         riva_host_direction(p,deps,&valid):riva_zero();
     const int reversal=p->objective_reversal_enabled?
-        riva_host_reversal(p,state,direction,valid):0;
+        (reversal_override<0?riva_host_reversal(p,state,direction,valid):
+         (reversal_override!=0)):0;
     riva_state_t current=*state;
     const riva_tensor_t sub=riva_scale(deps,1.0/(double)fixed_substeps);
     for (int32_t i=0;i<fixed_substeps;i++)
@@ -977,6 +1053,15 @@ RIVA_HD static inline int riva_update_material(const riva_parameters_t *p,
     if (info) { info->accepted_substeps=fixed_substeps;
                 info->reversal_registered=reversal; }
     return 1;
+}
+
+RIVA_HD static inline int riva_update_material(const riva_parameters_t *p,
+    const riva_material_parameters_t *material,riva_tensor_t deps,
+    int32_t fixed_substeps,riva_state_t *state,riva_tensor_t *stress_new,
+    riva_update_info_t *info)
+{
+    return riva_update_material_ex(p,material,deps,fixed_substeps,state,
+                                   stress_new,info,-1);
 }
 
 RIVA_HD static inline int riva_update(const riva_parameters_t *p,riva_tensor_t deps,

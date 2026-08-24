@@ -1,10 +1,10 @@
 /*
  *
- *  This file is part of MUMPS 5.5.1, released
- *  on Tue Jul 12 13:17:24 UTC 2022
+ *  This file is part of MUMPS 5.9.1, released
+ *  on Mon Jul 20 09:00:43 UTC 2026
  *
  *
- *  Copyright 1991-2022 CERFACS, CNRS, ENS Lyon, INP Toulouse, Inria,
+ *  Copyright 1991-2026 CERFACS, CNRS, ENS Lyon, INP Toulouse, Inria,
  *  Mumps Technologies, University of Bordeaux.
  *
  *  This version of MUMPS is provided to you free of charge. It is
@@ -68,5 +68,6 @@ typedef struct {double r,i;} mumps_double_complex;
 #define MUMPS_ARITH_SINGLE ( MUMPS_ARITH_s | MUMPS_ARITH_c )
 #define MUMPS_ARITH_DBL    ( MUMPS_ARITH_d | MUMPS_ARITH_z )
 
+#define MUMPS_OFF_T MUMPS_INT8
 
 #endif /* MUMPS_C_TYPES_H */

@@ -18,7 +18,7 @@
 
 namespace {
 
-const int RIVASerializedSize = 131;
+const int RIVASerializedSize = 140;
 
 bool finiteVector(const Vector &value)
 {
@@ -65,6 +65,15 @@ OPS_RIVASandMaterial(void)
     int stage = 0;
     bool stageSpecified = false;
     bool initialStressSpecified = false;
+    bool reversalLatch = false;
+    bool admitOverbound = false;
+    bool numericalTangent = false;
+    bool recenterActivation = false;
+    double recenterThreshold = 0.9;
+    double betaFloor = 0.0;
+    double betaReserve = 0.0;
+    double pMax = 0.0;
+    double projectActivation = 0.0;
     Vector initialStress(6);
     initialStress.Zero();
 
@@ -110,6 +119,57 @@ OPS_RIVASandMaterial(void)
                        << "; value must be positive" << endln;
                 return 0;
             }
+        } else if (std::strcmp(option, "-reversalLatch") == 0) {
+            reversalLatch = true;
+        } else if (std::strcmp(option, "-admitOverbound") == 0) {
+            admitOverbound = true;
+        } else if (std::strcmp(option, "-numericalTangent") == 0) {
+            numericalTangent = true;
+        } else if (std::strcmp(option, "-recenterActivation") == 0) {
+            recenterActivation = true;
+        } else if (std::strcmp(option, "-recenterThreshold") == 0) {
+            count = 1;
+            if (OPS_GetDoubleInput(&count, &recenterThreshold) < 0 ||
+                !std::isfinite(recenterThreshold) ||
+                recenterThreshold < 0.0) {
+                opserr << "WARNING invalid -recenterThreshold for RIVASand "
+                       << "tag " << tag << "; value must be >= 0" << endln;
+                return 0;
+            }
+        } else if (std::strcmp(option, "-betaFloor") == 0) {
+            count = 1;
+            if (OPS_GetDoubleInput(&count, &betaFloor) < 0 ||
+                !std::isfinite(betaFloor) || betaFloor < 0.0) {
+                opserr << "WARNING invalid -betaFloor for RIVASand tag "
+                       << tag << "; value must be >= 0" << endln;
+                return 0;
+            }
+        } else if (std::strcmp(option, "-projectActivation") == 0) {
+            count = 1;
+            if (OPS_GetDoubleInput(&count, &projectActivation) < 0 ||
+                !std::isfinite(projectActivation) ||
+                projectActivation < 0.0 || projectActivation >= 1.0) {
+                opserr << "WARNING invalid -projectActivation for RIVASand "
+                       << "tag " << tag << "; margin must be in [0,1)"
+                       << endln;
+                return 0;
+            }
+        } else if (std::strcmp(option, "-pMax") == 0) {
+            count = 1;
+            if (OPS_GetDoubleInput(&count, &pMax) < 0 ||
+                !std::isfinite(pMax) || pMax < 0.0) {
+                opserr << "WARNING invalid -pMax for RIVASand tag "
+                       << tag << "; value must be >= 0" << endln;
+                return 0;
+            }
+        } else if (std::strcmp(option, "-betaReserve") == 0) {
+            count = 1;
+            if (OPS_GetDoubleInput(&count, &betaReserve) < 0 ||
+                !std::isfinite(betaReserve) || betaReserve < 0.0) {
+                opserr << "WARNING invalid -betaReserve for RIVASand tag "
+                       << tag << "; value must be >= 0" << endln;
+                return 0;
+            }
         } else if (std::strcmp(option, "-stage") == 0) {
             count = 1;
             if (OPS_GetIntInput(&count, &stage) < 0) {
@@ -148,6 +208,15 @@ OPS_RIVASandMaterial(void)
         values[5], values[6], values[7], values[8], values[9], values[10],
         rho, fixedSubsteps, stressScale, pMin, tangentPressureFloor, stage,
         initialStress);
+    if (material != 0) material->setReversalLatch(reversalLatch);
+    if (material != 0) material->setAdmitOverbound(admitOverbound);
+    if (material != 0) material->setNumericalTangent(numericalTangent);
+    if (material != 0) material->setBetaFloor(betaFloor);
+    if (material != 0) material->setBetaReserve(betaReserve);
+    if (material != 0) material->setPMax(pMax);
+    if (material != 0) material->setProjectActivation(projectActivation);
+    if (material != 0) material->setRecenterActivation(recenterActivation);
+    if (material != 0) material->setRecenterThreshold(recenterThreshold);
     if (material == 0 || !material->isValid()) {
         opserr << "WARNING invalid RIVASand material with tag "
                << tag << endln;
@@ -167,6 +236,9 @@ RIVASand::RIVASand(
       mTangentPressureFloor(0.0),
       mFixedSubsteps(fixedSubsteps), mStage(initialStage),
       mInitialStage(initialStage), mValid(true),
+      mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
+      mNumericalTangent(false), mFDPending(false), mFDReversal(0),
+      mRecenterActivation(false), mRecenterThreshold(0.9), mBetaReserve(0.0), mProjectActivation(0.0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
       mInitialTangent(6, 6), mStateOutput(RIVA_STATE_VALUE_COUNT),
@@ -204,6 +276,9 @@ RIVASand::RIVASand()
       mDr(0.0), mRho(0.0), mStressScale(1.0),
       mTangentPressureFloor(0.0), mFixedSubsteps(1),
       mStage(0), mInitialStage(0), mValid(false),
+      mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
+      mNumericalTangent(false), mFDPending(false), mFDReversal(0),
+      mRecenterActivation(false), mRecenterThreshold(0.9), mBetaReserve(0.0), mProjectActivation(0.0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
       mInitialTangent(6, 6), mStateOutput(RIVA_STATE_VALUE_COUNT),
@@ -270,12 +345,65 @@ RIVASand::activateFromCommittedStress(void)
                << "effective stress" << endln;
         return -1;
     }
+    riva_tensor_t stressUse = stress;
+    if (mProjectActivation > 0.0) {
+        // PM4Sand-style one-time initial stress reset: elastic gravity can
+        // leave stress ratios beyond anything the plastic model can hold
+        // statically (real soil redistributes DURING gravity ramp-up; the
+        // elastic+switch shortcut cannot). Scale the deviatoric part once,
+        // at activation, so every point starts inside its bounding surface
+        // with margin; the equilibrium deficit is finite and the transient
+        // redistributes it through a well-posed system. Response stays
+        // continuous from the corrected state ??unlike per-call projection.
+        const double p0 = riva_max(riva_pressure(stressUse),
+                                   mParameters.p_min);
+        double mb = 0.0, md = 0.0, xi = 0.0;
+        riva_surfaces(&mParameters, &mMaterial, p0, initialVoidRatio(),
+                      &mb, &md, &xi);
+        const double bound = sqrt(2.0/3.0)*mb;
+        const double target = (1.0 - mProjectActivation)*bound;
+        riva_tensor_t dev = riva_dev(stressUse);
+        const double alphaNorm = riva_norm(dev)/p0;
+        if (bound > 0.0 && alphaNorm > target) {
+            dev = riva_scale(dev, target/alphaNorm);
+            stressUse = riva_sub(dev, riva_iso(p0));
+        }
+    }
     riva_state_t state = {};
-    if (!riva_initialize_material(&mParameters, &mMaterial, stress,
+    if (!riva_initialize_material(&mParameters, &mMaterial, stressUse,
                                  initialVoidRatio(), &state)) return -1;
-    riva_tensor_t reference = stress;
+    riva_tensor_t reference = stressUse;
     reference.xy = reference.yz = reference.xz = 0.0;
     if (!riva_begin_dynamic_phase(&mParameters, reference, &state)) return -1;
+    // Activation severity: how close this point's stage-in stress ratio sits
+    // to its bounding surface. Level-ground K0 states (the calibration
+    // condition) sit near 0.7; SSI foundation-edge and low-p' surface states
+    // sit at or beyond 1.0. Both stage-in aids below apply ONLY to severe
+    // points, so every calibrated loading path is untouched bit-for-bit.
+    double severity = 0.0;
+    {
+        double mb = 0.0, md = 0.0, xi = 0.0;
+        riva_surfaces(&mParameters, &mMaterial,
+                      riva_max(riva_pressure(state.stress), mParameters.p_min),
+                      state.void_ratio, &mb, &md, &xi);
+        const double bound = sqrt(2.0/3.0)*mb;
+        if (bound > 0.0) severity = riva_norm(state.alpha)/bound;
+    }
+    const bool severe = severity > mRecenterThreshold;
+    if (mRecenterActivation && severe) {
+        // PM4Sand FirstCall semantics: re-center the bounding-surface mapping
+        // reference at the activation stress ratio, as if a reversal had just
+        // occurred there. The kernel's default (alpha0 = 0) leaves such
+        // states with little or no bounding distance ??over-bound foundation
+        // states get beta <= 0 permanently until a real reversal.
+        state.alpha0 = state.alpha;
+        state.alpha01 = state.alpha;
+    }
+    // The hardening reserve is spatially UNGATED (the redistribution wave
+    // reaches activation-benign points too) but stage-scoped in time: the
+    // host zeroes it via the betaReserve parameter before the shaking stage,
+    // so the frozen cyclic response applies where it was calibrated.
+    mParameters.beta_reserve = mBetaReserve;
     mCommittedState = state;
     mTrialState = state;
     tensorToStress(state.stress, mCommittedStress);
@@ -358,8 +486,10 @@ RIVASand::updateTrialTangent(void)
 int
 RIVASand::setTrialStrain(const Vector &strain)
 {
-    if (!mValid || strain.Size() != 6 || !finiteVector(strain)) return -1;
+    if (!mValid || strain.Size() != 6) return -1;
+    if (!finiteVector(strain)) return -1;
     mTrialStrain = strain;
+    mFDPending = false;
     Vector increment = mTrialStrain - mCommittedStrain;
 
     if (mStage == 0) {
@@ -377,13 +507,20 @@ RIVASand::setTrialStrain(const Vector &strain)
     mTrialState = mCommittedState;
     riva_tensor_t stress = mTrialState.stress;
     riva_update_info_t information = {};
-    if (!riva_update_material(
+    const int reversalOverride =
+        (mReversalLatch && mLatchValid) ? mLatchedReversal : -1;
+    if (!riva_update_material_ex(
             &mParameters, &mMaterial, strainIncrementToTensor(increment),
-            mFixedSubsteps, &mTrialState, &stress, &information)) {
+            mFixedSubsteps, &mTrialState, &stress, &information,
+            reversalOverride)) {
         mTrialState = mCommittedState;
         mTrialStress = mCommittedStress;
         mTrialStrain = mCommittedStrain;
         return -1;
+    }
+    if (mReversalLatch && !mLatchValid && information.accepted_substeps > 0) {
+        mLatchedReversal = information.reversal_registered ? 1 : 0;
+        mLatchValid = true;
     }
     tensorToStress(stress, mTrialStress);
     if (!finiteVector(mTrialStress)) {
@@ -394,6 +531,10 @@ RIVASand::setTrialStrain(const Vector &strain)
         return -1;
     }
     updateTrialTangent();
+    if (mNumericalTangent) {
+        mFDPending = true;
+        mFDReversal = information.reversal_registered ? 1 : 0;
+    }
     return 0;
 }
 
@@ -434,7 +575,62 @@ RIVASand::getStrain(void)
 const Matrix &
 RIVASand::getTangent(void)
 {
+    if (mFDPending) {
+        mFDPending = false;
+        computeNumericalTangent();
+    }
     return mTangent;
+}
+
+void
+RIVASand::computeNumericalTangent(void)
+{
+    // SANISAND-style consistent tangent, obtained by forward differences:
+    // six extra kernel evaluations from the SAME committed state with the
+    // SAME reversal decision as the accepted trial. Keeps the elastic
+    // tangent (already in mTangent) on any FD failure, on implausibly large
+    // trial increments (doomed Newton probes), or on badly scaled columns
+    // that would poison the factorization.
+    const double delta = 1.0e-8;
+    const double maxIncrement = 1.0e-2;
+    Vector increment = mTrialStrain - mCommittedStrain;
+    for (int i = 0; i < 6; ++i)
+        if (std::fabs(increment(i)) > maxIncrement) return;
+    double elasticScale = 0.0;
+    for (int i = 0; i < 6; ++i)
+        elasticScale = riva_max(elasticScale, std::fabs(mTangent(i, i)));
+    // Legitimate elastoplastic columns never exceed the elastic scale; a
+    // column of 1e7+ means the +delta perturbation crossed a kernel branch
+    // (projection cap, p_min floor, dilatancy switch) and the divided
+    // difference measured the kink, not the stiffness. Reject those.
+    const double entryLimit = 10.0*elasticScale;
+    Matrix fd(6, 6);
+    for (int j = 0; j < 6; ++j) {
+        Vector strainP = mTrialStrain;
+        strainP(j) += delta;
+        Vector incP = strainP - mCommittedStrain;
+        riva_state_t stP = mCommittedState;
+        riva_tensor_t sP = stP.stress;
+        riva_update_info_t infP = {};
+        if (!riva_update_material_ex(
+                &mParameters, &mMaterial, strainIncrementToTensor(incP),
+                mFixedSubsteps, &stP, &sP, &infP, mFDReversal)) return;
+        Vector sigP(6);
+        tensorToStress(sP, sigP);
+        for (int i = 0; i < 6; ++i) {
+            const double value = (sigP(i) - mTrialStress(i))/delta;
+            if (!std::isfinite(value) || std::fabs(value) > entryLimit)
+                return;
+            fd(i, j) = value;
+        }
+        // A near-zero (or negative) diagonal means this point is in a
+        // mechanism direction; assembling it makes the global matrix
+        // near-singular and the linear solve returns garbage corrections
+        // (observed as sudden 1e8-1e68 residual explosions mid-descent).
+        // Keep the elastic tangent for such points instead.
+        if (fd(j, j) < 1.0e-4*mTangent(j, j)) return;
+    }
+    mTangent = fd;
 }
 
 const Matrix &
@@ -449,12 +645,75 @@ RIVASand::getRho(void)
     return mRho;
 }
 
+void
+RIVASand::setReversalLatch(bool enabled)
+{
+    mReversalLatch = enabled;
+    mLatchValid = false;
+    mLatchedReversal = 0;
+}
+
+void
+RIVASand::setAdmitOverbound(bool enabled)
+{
+    mParameters.admit_inherited_overbound = enabled ? 1 : 0;
+}
+
+void
+RIVASand::setNumericalTangent(bool enabled)
+{
+    mNumericalTangent = enabled;
+}
+
+void
+RIVASand::setBetaFloor(double value)
+{
+    mParameters.beta_floor =
+        (std::isfinite(value) && value > 0.0) ? value : 0.0;
+}
+
+void
+RIVASand::setRecenterActivation(bool enabled)
+{
+    mRecenterActivation = enabled;
+}
+
+void
+RIVASand::setProjectActivation(double value)
+{
+    mProjectActivation =
+        (std::isfinite(value) && value > 0.0 && value < 1.0) ? value : 0.0;
+}
+
+void
+RIVASand::setPMax(double value)
+{
+    mParameters.p_max =
+        (std::isfinite(value) && value > 0.0) ? value : 0.0;
+}
+
+void
+RIVASand::setRecenterThreshold(double value)
+{
+    mRecenterThreshold =
+        (std::isfinite(value) && value >= 0.0) ? value : 0.9;
+}
+
+void
+RIVASand::setBetaReserve(double value)
+{
+    mBetaReserve = (std::isfinite(value) && value > 0.0) ? value : 0.0;
+    mParameters.beta_reserve = mBetaReserve;
+}
+
 int
 RIVASand::commitState(void)
 {
     mCommittedStrain = mTrialStrain;
     mCommittedStress = mTrialStress;
     mCommittedState = mTrialState;
+    mLatchValid = false;
+    mFDPending = false;
     return 0;
 }
 
@@ -464,6 +723,8 @@ RIVASand::revertToLastCommit(void)
     mTrialStrain = mCommittedStrain;
     mTrialStress = mCommittedStress;
     mTrialState = mCommittedState;
+    mLatchValid = false;
+    mFDPending = false;
     updateTrialTangent();
     return 0;
 }
@@ -471,6 +732,8 @@ RIVASand::revertToLastCommit(void)
 int
 RIVASand::revertToStart(void)
 {
+    mLatchValid = false;
+    mFDPending = false;
     mStage = mInitialStage;
     mCommittedStrain.Zero();
     mTrialStrain.Zero();
@@ -550,6 +813,15 @@ RIVASand::sendSelf(int commitTag, Channel &theChannel)
     data(128) = mCommittedState.initialized;
     data(129) = mParameters.p_min;
     data(130) = mTangentPressureFloor;
+    data(131) = mReversalLatch ? 1.0 : 0.0;
+    data(132) = mParameters.admit_inherited_overbound;
+    data(133) = mNumericalTangent ? 1.0 : 0.0;
+    data(134) = mParameters.beta_floor;
+    data(135) = mRecenterActivation ? 1.0 : 0.0;
+    data(136) = mBetaReserve;
+    data(137) = mRecenterThreshold;
+    data(138) = mParameters.p_max;
+    data(139) = mProjectActivation;
 
     if (theChannel.sendVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASand::sendSelf failed for tag "
@@ -636,6 +908,15 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
         stateValues[i] = data(35+i);
     if (restoreState(stateValues, (int)std::llround(data(128)),
                      mCommittedState) != 0) return -1;
+    setReversalLatch(std::llround(data(131)) != 0);
+    setAdmitOverbound(std::llround(data(132)) != 0);
+    setNumericalTangent(std::llround(data(133)) != 0);
+    setBetaFloor(data(134));
+    setRecenterActivation(std::llround(data(135)) != 0);
+    setBetaReserve(data(136));
+    setRecenterThreshold(data(137));
+    setPMax(data(138));
+    setProjectActivation(data(139));
 
     mValid = mStressScale > 0.0 && mRho >= 0.0 && mFixedSubsteps >= 1 &&
         (mStage == 0 || mStage == 1) && mDr >= 0.0 && mDr <= 1.0 &&
@@ -734,6 +1015,20 @@ int
 RIVASand::setParameter(const char **argv, int argc,
                             Parameter &parameter)
 {
+    if (argc >= 1 && std::strcmp(argv[0], "numericalTangent") == 0) {
+        // Stage-scoped like betaReserve: FD consistent tangent for the
+        // implicit consolidation solve, elastic tangent for shaking.
+        if (argc >= 2 && std::atoi(argv[1]) != this->getTag()) return -1;
+        return parameter.addObject(NumericalTangentParameter, this);
+    }
+    if (argc >= 1 && std::strcmp(argv[0], "betaReserve") == 0) {
+        // Stage-scoped hardening reserve: enabled for consolidation, then
+        // zeroed via `setParameter -val 0 ... betaReserve` before shaking so
+        // the frozen cyclic response applies. Accepts the tag-less
+        // element-forwarded form and the tagged form alike.
+        if (argc >= 2 && std::atoi(argv[1]) != this->getTag()) return -1;
+        return parameter.addObject(BetaReserveParameter, this);
+    }
     if (argc < 2 || std::atoi(argv[1]) != this->getTag()) return -1;
     if (std::strcmp(argv[0], "updateMaterialStage") == 0 ||
         std::strcmp(argv[0], "materialState") == 0)
@@ -751,6 +1046,8 @@ RIVASand::updateParameter(int responseID, Information &information)
         const int requested = information.theInt;
         if (requested != 0 && requested != 1) return -1;
         if (requested == mStage) return 0;
+        mLatchValid = false;
+        mFDPending = false;
         if (requested == 1) {
             if (activateFromCommittedStress() != 0) return -1;
             mStage = 1;
@@ -766,6 +1063,19 @@ RIVASand::updateParameter(int responseID, Information &information)
         const int requested = information.theInt;
         if (requested < 1) return -1;
         mFixedSubsteps = requested;
+        return 0;
+    }
+    if (responseID == BetaReserveParameter) {
+        const double requested = information.theDouble;
+        if (!std::isfinite(requested) || requested < 0.0) return -1;
+        setBetaReserve(requested);
+        return 0;
+    }
+    if (responseID == NumericalTangentParameter) {
+        const double requested = information.theDouble;
+        if (!std::isfinite(requested)) return -1;
+        setNumericalTangent(requested != 0.0);
+        if (!mNumericalTangent) mFDPending = false;
         return 0;
     }
     return -1;

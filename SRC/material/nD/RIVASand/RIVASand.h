@@ -60,11 +60,22 @@ public:
     void Print(OPS_Stream &output, int flag = 0);
 
     bool isValid(void) const;
+    void setReversalLatch(bool enabled);
+    void setAdmitOverbound(bool enabled);
+    void setNumericalTangent(bool enabled);
+    void setBetaFloor(double value);
+    void setBetaReserve(double value);
+    void setPMax(double value);
+    void setProjectActivation(double value);
+    void setRecenterActivation(bool enabled);
+    void setRecenterThreshold(double value);
 
 private:
     enum {
         StageParameter = 1,
-        SubstepParameter = 2
+        SubstepParameter = 2,
+        BetaReserveParameter = 3,
+        NumericalTangentParameter = 4
     };
 
     void setReferenceParameters(void);
@@ -74,6 +85,7 @@ private:
     int activateFromCommittedStress(void);
     void buildTangent(double bulk, double shear, Matrix &matrix) const;
     void updateTrialTangent(void);
+    void computeNumericalTangent(void);
     double initialVoidRatio(void) const;
     const Vector &getStateVector(void);
     const Vector &getScalarResponse(int responseID);
@@ -92,6 +104,32 @@ private:
     int mStage;
     int mInitialStage;
     bool mValid;
+    // -reversalLatch: latch the kernel's reversal decision on the first trial
+    // of each equilibrium increment and reuse it for later Newton iterations
+    // (prevents branch flip-flop / Newton limit cycling at high static bias).
+    bool mReversalLatch;
+    bool mLatchValid;
+    int mLatchedReversal;
+    // -numericalTangent: build a finite-difference consistent elastoplastic
+    // tangent (6 extra kernel evaluations) instead of advertising the elastic
+    // tangent. SANISAND-style consistent-tangent behavior for implicit solves
+    // dominated by plastic flow. Computed lazily in getTangent() so that
+    // residual-only evaluations (line search) never pay for it.
+    bool mNumericalTangent;
+    bool mFDPending;
+    int mFDReversal;
+    // -recenterActivation: PM4Sand-FirstCall-style re-centering of the
+    // bounding-surface mapping reference at stage activation. Applied (like
+    // the -betaReserve hardening reserve) only when the activation stress
+    // ratio sits above 0.9x the bounding surface, so calibrated level-ground
+    // K0 paths (severity ~0.7) are untouched bit-for-bit.
+    bool mRecenterActivation;
+    double mRecenterThreshold;
+    double mBetaReserve;
+    // -projectActivation: one-time initial-stress-ratio reset at stage
+    // activation (PM4Sand-style); margin = how far inside the bounding
+    // surface every point starts.
+    double mProjectActivation;
 
     riva_parameters_t mParameters;
     riva_material_parameters_t mMaterial;
