@@ -44,7 +44,7 @@ typedef struct riva_material_parameters_t {
 
 #define RIVA_PARAMETER_COUNT 116
 #define RIVA_CONSTITUTIVE_PARAMETER_COUNT 112
-#define RIVA_STATE_VALUE_COUNT 93
+#define RIVA_STATE_VALUE_COUNT 94
 #define RIVA_PARAMETER_SHA256 \
     "9585f0c155c9444885c5115e7753a1a5d97c783e2c685938a49a65435c9e8f83"
 
@@ -91,14 +91,20 @@ typedef struct riva_parameters_t {
     double bias_reversible_volume_bias_exponent;
     double bias_reversible_volume_pressure_exponent;
     double bias_reversible_volume_buildup_reversals;
-    /* Amplitude gate for the bias reversible-volume response (same smoothstep
-       pattern as bias_ratchet_amplitude_onset/full). Without it the phase
-       normalization by cyclic_amplitude makes the oscillation swing full-size
-       at ANY amplitude: micro-cycles on a statically biased point pump the
+    /* V9 plastic-activity gate: the reversible-volume response is scaled by
+       smoothstep(ep_half_last/ep_ref) — the plastic multiplier of the last
+       completed half-cycle. Without it the phase normalization by
+       cyclic_amplitude makes the oscillation swing full-size at ANY
+       amplitude: micro-cycles on a statically biased point pump the
        confining stress without bound (sigma'_v 25 -> 13.5/47.8 kPa in five
-       5-Pa cycles). Onset/full sit far below every calibrated loading path
-       (goldens run at ratio amplitude >= ~0.4), so the gate evaluates to
-       exactly 1.0 there and the frozen V8 oracle is preserved bit-for-bit. */
+       5-Pa cycles). ep_ref sits below every calibrated half-cycle's plastic
+       multiplier (golden floor 3.4e-5), so the gate is exactly 1.0 on every
+       calibrated path and the frozen oracle is preserved bit-for-bit. */
+    double bias_reversible_volume_ep_ref;
+    /* stress-amplitude gate (kept alongside the plastic gate: the plastic
+       gate alone cannot block small-stress-amplitude PLASTIC cycling, which
+       slope states produce during gravity redistribution). Discriminant is
+       amp*anchor/p_current; window below the golden floor of 0.5375. */
     double bias_reversible_volume_amplitude_onset;
     double bias_reversible_volume_amplitude_full;
     /* Low-pressure fade. The calibrated envelope anchors at ~26 kPa; at low
@@ -187,6 +193,9 @@ typedef struct riva_state_t {
     double bias_ratchet_strain, physical_eps_v_total;
     double bias_reversible_volume;
     riva_tensor_t last_host_deviatoric_strain_direction;
+    /* plastic multiplier accumulated over the last COMPLETED half-cycle
+       (captured from ep_eq_since_reversal at reversal registration) */
+    double ep_half_last;
     int32_t initialized;
 } riva_state_t;
 
@@ -269,8 +278,7 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.bias_reversible_volume_bias_exponent=2.0;
     p.bias_reversible_volume_pressure_exponent=0.22;
     p.bias_reversible_volume_buildup_reversals=6.0;
-    /* gate window sits below the golden floor of the discriminant
-       amp*anchor/p (0.5375 across all bias-active golden rows) */
+    p.bias_reversible_volume_ep_ref=1.5e-5;
     p.bias_reversible_volume_amplitude_onset=0.12;
     p.bias_reversible_volume_amplitude_full=0.35;
     p.bias_reversible_volume_pressure_fade=12.0*stress_scale;
@@ -839,6 +847,11 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
         }
         state.last_reversal_deviator=reversal_dev;
         state.amplitude_reversals=old->amplitude_reversals+1;
+        /* plastic activity of the half-cycle that just completed: the
+           amplitude-consistency discriminant for the bias reversible-volume
+           block (PM4Sand/SANISAND-style: cyclic volumetric response follows
+           the plastic multiplier, so micro/elastic cycles drive nothing) */
+        state.ep_half_last=old->ep_eq_since_reversal;
     }
     return state;
 }
@@ -863,15 +876,19 @@ RIVA_HD static inline double riva_bias_reversible_volume_target(
     if (direction_norm<=1.0e-14 || s->cyclic_amplitude<=1.0e-14) return 0.0;
     const double bias=riva_projected_bias(s);
     if (bias<=1.0e-14) return 0.0;
-    /* Discriminate on amplitude relative to the CURRENT pressure, not the
-       fixed anchor: post-liquefaction cycles legitimately have a collapsed
-       stress amplitude but a collapsed p' too (ratio stays O(M) large, gate
-       fully open); the pathological micro-cycles have p' ~ anchor and a
-       vanishing ratio (gate closed). */
+    /* Plastic-activity gate (V9): the response follows the plastic
+       multiplier of the last completed half-cycle, PM4Sand/SANISAND-style —
+       elastic/micro cycles drive nothing, structurally, with no dependence
+       on the current pressure (no p-collapse feedback loop). ep_ref sits
+       below the golden floor (3.4e-5 in cyclic_bias0375_dense), so every
+       calibrated evaluation saturates at exactly 1.0. */
+    const double plastic_gate=riva_smoothstep(
+        s->ep_half_last/p->bias_reversible_volume_ep_ref);
+    if (plastic_gate<=0.0) return 0.0;
     const double amplitude_vs_p=s->cyclic_amplitude*
         riva_max(s->pressure_anchor,p->p_min)/
         riva_max(riva_pressure(s->stress),p->p_min);
-    const double amplitude_gate=riva_smoothstep(
+    const double amplitude_gate=plastic_gate*riva_smoothstep(
         (amplitude_vs_p-p->bias_reversible_volume_amplitude_onset)/
         (p->bias_reversible_volume_amplitude_full-
          p->bias_reversible_volume_amplitude_onset));
@@ -1152,6 +1169,7 @@ RIVA_HD static inline int riva_state_values(
     values[i++]=state->physical_eps_v_total;
     values[i++]=state->bias_reversible_volume;
     RIVA_STATE_TENSOR(state->last_host_deviatoric_strain_direction);
+    values[i++]=state->ep_half_last;
 #undef RIVA_STATE_TENSOR
     return i;
 }

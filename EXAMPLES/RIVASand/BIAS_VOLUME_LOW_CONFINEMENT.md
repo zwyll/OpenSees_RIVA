@@ -88,3 +88,33 @@ the golden histories so calibrated paths sit at 1). Amplitude consistency
 then holds structurally and both gates in this PR can be removed. Costs:
 state vector 93 -> 94, state_schema/adapter/state-test updates, golden
 re-freeze (V9 oracle), Hercules port sync.
+
+## V9 experiment (2026-08-25): plastic-activity gate — result and a decisive negative
+
+Implemented `ep_half_last` (new state field, plastic multiplier of the last
+completed half-cycle, captured at reversal registration; state vector 93->94)
+and gated the target by `smoothstep(ep_half_last/ep_ref)`, ep_ref = 1.5e-5,
+below the golden floor (3.4e-5, weakest half-cycle of cyclic_bias0375_dense).
+Golden replay stays bit-identical (the gate saturates at 1.0 on every
+calibrated evaluation) — no oracle re-freeze needed.
+
+Findings:
+- The plastic gate alone does NOT stabilize sloping-ground BVPs: gravity
+  redistribution on a slope is genuinely plastic (ep_half >> 1.5e-5) at tiny
+  STRESS amplitude, so the mechanism re-ignites during the gravity settle.
+- The stress-amplitude gate alone leaves the p-collapse feedback (p drops ->
+  amp*anchor/p rises -> mechanism opens -> p drops further).
+- Both gates TOGETHER (plus the low-pressure fade) are strictly safer and all
+  evaluate to exactly 1.0 on the golden paths; this is what the branch now
+  carries. BVP work still runs `-noBiasVolume`.
+
+The structural conclusion: a SATURATING gate can never be simultaneously
+bit-preserving (=1 across the golden envelope) and proportional below it,
+because the golden envelope itself contains a weak-plasticity half-cycle
+(ep = 3.4e-5) that the frozen calibration treats at full mechanism strength.
+Making the response truly amplitude-consistent (PM4Sand-style, response
+proportional to the cycle plastic multiplier, e.g. min(1, ep_half/ep_cal)
+with ep_cal ~ 3e-3) necessarily rescales that golden half-cycle — i.e. the
+proper fix REQUIRES re-freezing the oracle and re-checking the DSS
+calibration. That decision belongs to the model owner; the infrastructure
+for it (ep_half_last state + gate plumbing) is in place on this branch.
