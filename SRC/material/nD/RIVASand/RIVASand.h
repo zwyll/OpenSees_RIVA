@@ -62,6 +62,7 @@ public:
     bool isValid(void) const;
     void setReversalLatch(bool enabled);
     void setAdmitOverbound(bool enabled);
+    void setBiasVolumeEnabled(bool enabled);
     void setNumericalTangent(bool enabled);
     void setBetaFloor(double value);
     void setBetaReserve(double value);

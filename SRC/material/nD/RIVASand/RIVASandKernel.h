@@ -91,6 +91,22 @@ typedef struct riva_parameters_t {
     double bias_reversible_volume_bias_exponent;
     double bias_reversible_volume_pressure_exponent;
     double bias_reversible_volume_buildup_reversals;
+    /* Amplitude gate for the bias reversible-volume response (same smoothstep
+       pattern as bias_ratchet_amplitude_onset/full). Without it the phase
+       normalization by cyclic_amplitude makes the oscillation swing full-size
+       at ANY amplitude: micro-cycles on a statically biased point pump the
+       confining stress without bound (sigma'_v 25 -> 13.5/47.8 kPa in five
+       5-Pa cycles). Onset/full sit far below every calibrated loading path
+       (goldens run at ratio amplitude >= ~0.4), so the gate evaluates to
+       exactly 1.0 there and the frozen V8 oracle is preserved bit-for-bit. */
+    double bias_reversible_volume_amplitude_onset;
+    double bias_reversible_volume_amplitude_full;
+    /* Low-pressure fade. The calibrated envelope anchors at ~26 kPa; at low
+       pressure anchors the fixed volumetric amplitude becomes comparable to
+       the confinement (small bulk modulus), so the whole response fades with
+       smoothstep(p_anchor/pressure_fade). Exactly 1x the frozen expression
+       at calibrated anchors (>= pressure_fade). */
+    double bias_reversible_volume_pressure_fade;
     double bias_reversible_mean_scale;
     double bias_reversible_mean_transition_pressure;
     double bias_reversible_mean_buildup_reversals;
@@ -137,7 +153,7 @@ typedef struct riva_parameters_t {
     double beta_floor;
     /* Opt-in PM4Sand-style additive hardening reserve: hardening becomes
      * p*h_eff*(beta^m + beta_reserve^m), but ONLY at material points that
-     * have not yet registered a reversal (reversals == 0) — i.e. the
+     * have not yet registered a reversal (reversals == 0) ??i.e. the
      * monotonic stage-in segment where SSI foundation states approach the
      * bounding surface and the plastic modulus would otherwise vanish
      * (a hard floor fixes the value but keeps a kink; the additive form is
@@ -253,6 +269,11 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.bias_reversible_volume_bias_exponent=2.0;
     p.bias_reversible_volume_pressure_exponent=0.22;
     p.bias_reversible_volume_buildup_reversals=6.0;
+    /* gate window sits below the golden floor of the discriminant
+       amp*anchor/p (0.5375 across all bias-active golden rows) */
+    p.bias_reversible_volume_amplitude_onset=0.12;
+    p.bias_reversible_volume_amplitude_full=0.35;
+    p.bias_reversible_volume_pressure_fade=12.0*stress_scale;
     p.bias_reversible_mean_scale=9.0e-5;
     p.bias_reversible_mean_transition_pressure=40.0*stress_scale;
     p.bias_reversible_mean_buildup_reversals=12.0;
@@ -703,7 +724,7 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
         pow(riva_max(beta_t,riva_max(p->beta_floor,1.0e-12)),material->m);
     if (p->beta_reserve>0.0 && old->reversals==0) {
         /* State-dependent gate: the reserve engages only when the committed
-         * stress ratio sits within 80% of the bounding surface — the regime
+         * stress ratio sits within 80% of the bounding surface ??the regime
          * where beta (and with it the plastic modulus) collapses. K0
          * consolidation states (~70%) never engage it; wave-driven points
          * engage it exactly when driven near the bound. Cyclic stages run
@@ -830,6 +851,9 @@ RIVA_HD static inline double riva_bias_reversible_factor(
         pow(riva_projected_bias(s),p->bias_reversible_exponent);
 }
 
+RIVA_HD static inline double riva_smoothstep(double value)
+{ value=riva_clip(value,0.0,1.0); return value*value*(3.0-2.0*value); }
+
 RIVA_HD static inline double riva_bias_reversible_volume_target(
     const riva_parameters_t *p,const riva_state_t *s)
 {
@@ -839,6 +863,19 @@ RIVA_HD static inline double riva_bias_reversible_volume_target(
     if (direction_norm<=1.0e-14 || s->cyclic_amplitude<=1.0e-14) return 0.0;
     const double bias=riva_projected_bias(s);
     if (bias<=1.0e-14) return 0.0;
+    /* Discriminate on amplitude relative to the CURRENT pressure, not the
+       fixed anchor: post-liquefaction cycles legitimately have a collapsed
+       stress amplitude but a collapsed p' too (ratio stays O(M) large, gate
+       fully open); the pathological micro-cycles have p' ~ anchor and a
+       vanishing ratio (gate closed). */
+    const double amplitude_vs_p=s->cyclic_amplitude*
+        riva_max(s->pressure_anchor,p->p_min)/
+        riva_max(riva_pressure(s->stress),p->p_min);
+    const double amplitude_gate=riva_smoothstep(
+        (amplitude_vs_p-p->bias_reversible_volume_amplitude_onset)/
+        (p->bias_reversible_volume_amplitude_full-
+         p->bias_reversible_volume_amplitude_onset));
+    if (amplitude_gate<=0.0) return 0.0;
     const riva_tensor_t phase_direction=riva_scale(s->cyclic_direction,1.0/direction_norm);
     const riva_tensor_t current=riva_dev(s->stress);
     const riva_tensor_t static_dev=riva_add(s->geostatic_deviator,
@@ -860,11 +897,14 @@ RIVA_HD static inline double riva_bias_reversible_volume_target(
         (p->bias_reversible_mean_transition_pressure-s->pressure_anchor)/
         p->bias_reference_pressure*(bias/p->bias_reversible_volume_reference_bias)*
         mean_buildup;
-    return oscillation+mean_shift;
+    /* low-pressure fade: exactly 1 at the calibrated anchors (>= fade
+       pressure), tapering the fixed volumetric amplitude where the small
+       bulk modulus would otherwise turn it into confinement-scale swings */
+    const double lowp_fade=riva_smoothstep(
+        riva_max(s->pressure_anchor,p->p_min)/
+        p->bias_reversible_volume_pressure_fade);
+    return (oscillation+mean_shift)*amplitude_gate*lowp_fade;
 }
-
-RIVA_HD static inline double riva_smoothstep(double value)
-{ value=riva_clip(value,0.0,1.0); return value*value*(3.0-2.0*value); }
 
 RIVA_HD static inline double riva_bias_ratchet_activity(
     const riva_parameters_t *p,const riva_state_t *s)

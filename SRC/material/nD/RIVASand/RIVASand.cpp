@@ -68,6 +68,7 @@ OPS_RIVASandMaterial(void)
     bool reversalLatch = false;
     bool admitOverbound = false;
     bool numericalTangent = false;
+    bool noBiasVolume = false;
     bool recenterActivation = false;
     double recenterThreshold = 0.9;
     double betaFloor = 0.0;
@@ -125,6 +126,9 @@ OPS_RIVASandMaterial(void)
             admitOverbound = true;
         } else if (std::strcmp(option, "-numericalTangent") == 0) {
             numericalTangent = true;
+        } else if (std::strcmp(option, "-noBiasVolume") == 0) {
+            // diagnostic switch: disable the bias reversible-volume block
+            noBiasVolume = true;
         } else if (std::strcmp(option, "-recenterActivation") == 0) {
             recenterActivation = true;
         } else if (std::strcmp(option, "-recenterThreshold") == 0) {
@@ -210,6 +214,7 @@ OPS_RIVASandMaterial(void)
         initialStress);
     if (material != 0) material->setReversalLatch(reversalLatch);
     if (material != 0) material->setAdmitOverbound(admitOverbound);
+    if (material != 0 && noBiasVolume) material->setBiasVolumeEnabled(false);
     if (material != 0) material->setNumericalTangent(numericalTangent);
     if (material != 0) material->setBetaFloor(betaFloor);
     if (material != 0) material->setBetaReserve(betaReserve);
@@ -657,6 +662,12 @@ void
 RIVASand::setAdmitOverbound(bool enabled)
 {
     mParameters.admit_inherited_overbound = enabled ? 1 : 0;
+}
+
+void
+RIVASand::setBiasVolumeEnabled(bool enabled)
+{
+    mParameters.bias_reversible_volume_enabled = enabled ? 1 : 0;
 }
 
 void
