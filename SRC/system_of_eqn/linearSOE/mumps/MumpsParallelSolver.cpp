@@ -34,6 +34,9 @@
 #include <OPS_Globals.h>
 #include <ID.h>
 #include <iostream>
+#include <cmath>
+#include <cstring>
+#include <cstdlib>
 
 #define ICNTL(I) icntl[(I)-1] /* macro s.t. indices match documentation */
 
@@ -90,17 +93,16 @@ MumpsParallelSolver::initializeMumps()
     id.par = 1; // host involved in calcs
     id.sym = theMumpsSOE->matType;
     
-#ifdef _OPENMPI    
-    //    id.comm_fortran=-987654;
-    id.comm_fortran = 0;
-#else
+    // LOCAL WINDOWS/INTEL-MPI BUILD FIX: the _OPENMPI branch passed
+    // id.comm_fortran = 0, an OpenMPI-specific convention. Under Intel MPI
+    // (MPICH ABI) 0 is not a valid Fortran communicator handle and MUMPS
+    // crashes at init (garbage dims -> MKL DGEMM parameter errors, then
+    // access violation). MPI_Comm_c2f is correct on every MPI.
     id.comm_fortran = MPI_Comm_c2f(MPI_COMM_WORLD);
-#endif
     
     id.ICNTL(5) = 0; id.ICNTL(18) = 3;
-    
     dmumps_c(&id);
-    
+
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &np);
     
@@ -199,8 +201,55 @@ MumpsParallelSolver::solveAfterInitialization(void)
   double *X = theMumpsSOE->X;
   double *B = theMumpsSOE->B;
 
+  // LOCAL ROBUSTNESS FIX: never hand a non-finite matrix or RHS to MUMPS.
+  // Garbage Newton trial states (equilibrium exploration) can produce
+  // NaN/Inf entries, and MUMPS 5.5.1-5.9.1 can access-violate inside its
+  // redistribution phase on such input instead of erroring. The decision is
+  // collective so every rank bails together (a lone early return would
+  // desynchronize the MPI collectives inside dmumps_c).
+  {
+    // Reject non-finite AND absurd-magnitude entries: with penalty
+    // constraints at 1e12 no legitimate stiffness entry exceeds ~1e13;
+    // values beyond 1e20 are garbage states that can still break MUMPS
+    // even though they pass isfinite.
+    const double entryCap = 1.0e20;
+    int badLocal = 0;
+    for (int i = 0; i < nnz; i++) {
+      if (!std::isfinite(A[i]) || std::fabs(A[i]) > entryCap) {
+        badLocal = 1; break;
+      }
+    }
+    if (badLocal == 0 && rank == 0) {
+      for (int i = 0; i < n; i++) {
+        if (!std::isfinite(B[i]) || std::fabs(B[i]) > entryCap) {
+          badLocal = 1; break;
+        }
+      }
+    }
+    int badGlobal = 0;
+    MPI_Allreduce(&badLocal, &badGlobal, 1, MPI_INT, MPI_MAX,
+                  MPI_COMM_WORLD);
+    if (badGlobal != 0) {
+      if (rank == 0)
+        opserr << "MumpsParallelSolver::solve - non-finite matrix/RHS "
+               << "entry; refusing to factorize\n";
+      return -1000;
+    }
+  }
+
+  // LOCAL DIAGNOSTIC: optional MUMPS problem dump for crash reproduction.
+  // Set MUMPS_WRITE_PROBLEM=<path-prefix>; each factorization overwrites
+  // the same files, so after a crash they hold the offending matrix.
+  {
+    const char *dumpPrefix = getenv("MUMPS_WRITE_PROBLEM");
+    if (dumpPrefix != 0) {
+      strncpy(id.write_problem, dumpPrefix, sizeof(id.write_problem) - 1);
+      id.write_problem[sizeof(id.write_problem) - 1] = '\0';
+    }
+  }
+
   // parallel solver; distributed i/p matrix A
-  id.ICNTL(5)=0; id.ICNTL(18)=3; 
+  id.ICNTL(5)=0; id.ICNTL(18)=3;
 
   // No outputs 
   id.ICNTL(1)=-1; id.ICNTL(2)=-1; id.ICNTL(3)=-1; id.ICNTL(4)=0;

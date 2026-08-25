@@ -108,6 +108,7 @@ all: $(OBJS)
 	@$(CD) $(FE)/material/nD/cyclicSoil; $(MAKE);
 	@$(CD) $(FE)/material/nD/reinforcedConcretePlaneStress; $(MAKE); 
 	@$(CD) $(FE)/material/nD/UWmaterials; $(MAKE);
+	@$(CD) $(FE)/material/nD/RIVASand; $(MAKE);
 	@$(CD) $(FE)/material/nD/matCMM; $(MAKE);
 	@$(CD) $(FE)/material/nD/stressDensityModel; $(MAKE);
 	@$(CD) $(FE)/material/nD/UANDESmaterials; $(MAKE);
@@ -137,6 +138,7 @@ spotless: clean
 	@$(CD) $(FE)/material/nD/cyclicSoil; $(MAKE) wipe;
 	@$(CD) $(FE)/material/nD/reinforcedConcretePlaneStress; $(MAKE) wipe; 
 	@$(CD) $(FE)/material/nD/UWmaterials; $(MAKE) wipe;
+	@$(CD) $(FE)/material/nD/RIVASand; $(MAKE) wipe;
 	@$(CD) $(FE)/material/nD/matCMM; $(MAKE) wipe;
 	@$(CD) $(FE)/material/nD/stressDensityModel; $(MAKE) wipe;
 	@$(CD) $(FE)/material/nD/UANDESmaterials; $(MAKE) wipe;

@@ -73,6 +73,7 @@ void* OPS_BeamFiberMaterial2dPS();
 void* OPS_PM4SandMaterial();
 void* OPS_PM4SiltMaterial();
 void* OPS_LinearElasticGGmaxMaterial();
+void* OPS_RIVASandMaterial();
 void* OPS_UVCplanestress();
 void* OPS_UVCmultiaxial();
 void* OPS_PressureDependMultiYield03();
@@ -200,6 +201,7 @@ namespace {
 	nDMaterialsMap.insert(std::make_pair("PM4Sand", &OPS_PM4SandMaterial));
 	nDMaterialsMap.insert(std::make_pair("PM4Silt", &OPS_PM4SiltMaterial));
 	nDMaterialsMap.insert(std::make_pair("LinearElasticGGmax", &OPS_LinearElasticGGmaxMaterial));
+	nDMaterialsMap.insert(std::make_pair("RIVASand", &OPS_RIVASandMaterial));
 	nDMaterialsMap.insert(std::make_pair("UVCplanestress", &OPS_UVCplanestress));
 	nDMaterialsMap.insert(std::make_pair("UVCmultiaxial", &OPS_UVCmultiaxial));
 	nDMaterialsMap.insert(std::make_pair("PressureDependMultiYield03", &OPS_PressureDependMultiYield03));
