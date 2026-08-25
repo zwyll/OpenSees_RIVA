@@ -565,7 +565,7 @@ RIVA_HD static inline void riva_cyclic_flow(const riva_parameters_t *p,
        the biased ratcheting direction (ep_ref = 3e-4: 3-9% UPSLOPE creep at
        alpha >= 0.25). The cut is load-bearing for the calibrated response;
        recalibrating it needs lab anchors (G/gamma + damping + K_alpha
-       data) — model-owner territory. Kept frozen. */
+       data) -- model-owner territory. Kept frozen. */
     const double ratio=riva_clip(pressure/riva_max(s->pressure_anchor,riva_cone_pressure_floor(p)),0.0,1.0);
     const double activity=pow(ratio,p->cyclic_flow_pressure_exponent);
     *shear_factor=1.0-p->cyclic_shear_modulus_reduction*activity;
