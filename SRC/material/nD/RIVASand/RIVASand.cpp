@@ -18,7 +18,7 @@
 
 namespace {
 
-const int RIVASerializedSize = 148;
+const int RIVASerializedSize = 153;
 
 bool finiteVector(const Vector &value)
 {
@@ -79,6 +79,8 @@ OPS_RIVASandMaterial(void)
     bool noBiasHardening = false;
     bool noCyclicFlow = false;
     double l3[3] = {0.0, 0.0, 0.0};
+    bool v11Enabled = false;
+    double v11[2] = {2.0, 0.35};
     double betaReserve = 0.0;
     double pMax = 0.0;
     double projectActivation = 0.0;
@@ -203,6 +205,16 @@ OPS_RIVASandMaterial(void)
             noBiasHardening = true;   // research diagnostic
         } else if (std::strcmp(option, "-noCyclicFlow") == 0) {
             noCyclicFlow = true;      // research diagnostic
+        } else if (std::strcmp(option, "-v11") == 0) {
+            count = 2;
+            if (OPS_GetDoubleInput(&count, v11) < 0 ||
+                !std::isfinite(v11[0]) || v11[0] < 0.0 ||
+                !std::isfinite(v11[1]) || v11[1] <= 0.0 || v11[1] > 1.0) {
+                opserr << "WARNING invalid -v11 (k etaFloor) for RIVASand "
+                       << "tag " << tag << endln;
+                return 0;
+            }
+            v11Enabled = true;
         } else if (std::strcmp(option, "-l3") == 0) {
             count = 3;
             if (OPS_GetDoubleInput(&count, l3) < 0 ||
@@ -260,6 +272,7 @@ OPS_RIVASandMaterial(void)
     if (material != 0) material->setDiagNoBiasHardening(noBiasHardening);
     if (material != 0) material->setDiagNoCyclicFlow(noCyclicFlow);
     if (material != 0) material->setL3(l3[0], l3[1], l3[2]);
+    if (material != 0) material->setV11(v11Enabled, v11[0], v11[1]);
     if (material != 0) material->setBetaReserve(betaReserve);
     if (material != 0) material->setPMax(pMax);
     if (material != 0) material->setProjectActivation(projectActivation);
@@ -782,6 +795,15 @@ RIVASand::setL3(double epRef, double boostFloor, double cutFloor)
 }
 
 void
+RIVASand::setV11(bool enabled, double k, double etaFloor)
+{
+    mParameters.v11_enabled = enabled ? 1 : 0;
+    mParameters.v11_k =
+        (std::isfinite(k) && k >= 0.0) ? k : 2.0;
+    mParameters.v11_eta_floor = riva_clip(etaFloor, 1.0e-3, 1.0);
+}
+
+void
 RIVASand::setRecenterActivation(bool enabled)
 {
     mRecenterActivation = enabled;
@@ -919,26 +941,30 @@ RIVASand::sendSelf(int commitTag, Channel &theChannel)
     riva_state_values(&mCommittedState, stateValues);
     for (int i = 0; i < RIVA_STATE_VALUE_COUNT; ++i)
         data(35+i) = stateValues[i];
-    data(128) = mCommittedState.initialized;
-    data(129) = mParameters.p_min;
-    data(130) = mTangentPressureFloor;
-    data(131) = mReversalLatch ? 1.0 : 0.0;
-    data(132) = mParameters.admit_inherited_overbound;
-    data(133) = mNumericalTangent ? 1.0 : 0.0;
-    data(134) = mParameters.beta_floor;
-    data(135) = mRecenterActivation ? 1.0 : 0.0;
-    data(136) = mBetaReserve;
-    data(137) = mRecenterThreshold;
-    data(138) = mParameters.p_max;
-    data(139) = mProjectActivation;
-    data(140) = mParameters.p_residual;
-    data(141) = mParameters.geostatic_admission_enabled;
-    data(142) = mParameters.beta_cap;
-    data(143) = mParameters.diag_no_bias_hardening;
-    data(144) = mParameters.diag_no_cyclic_flow;
-    data(145) = mParameters.l3_ep_ref;
-    data(146) = mParameters.l3_boost_floor;
-    data(147) = mParameters.l3_cut_floor;
+    // state block: data(35 .. 35+RIVA_STATE_VALUE_COUNT-1) = 35..129
+    data(130) = mCommittedState.initialized;
+    data(131) = mParameters.p_min;
+    data(132) = mTangentPressureFloor;
+    data(133) = mReversalLatch ? 1.0 : 0.0;
+    data(134) = mParameters.admit_inherited_overbound;
+    data(135) = mNumericalTangent ? 1.0 : 0.0;
+    data(136) = mParameters.beta_floor;
+    data(137) = mRecenterActivation ? 1.0 : 0.0;
+    data(138) = mBetaReserve;
+    data(139) = mRecenterThreshold;
+    data(140) = mParameters.p_max;
+    data(141) = mProjectActivation;
+    data(142) = mParameters.p_residual;
+    data(143) = mParameters.geostatic_admission_enabled;
+    data(144) = mParameters.beta_cap;
+    data(145) = mParameters.diag_no_bias_hardening;
+    data(146) = mParameters.diag_no_cyclic_flow;
+    data(147) = mParameters.l3_ep_ref;
+    data(148) = mParameters.l3_boost_floor;
+    data(149) = mParameters.l3_cut_floor;
+    data(150) = mParameters.v11_enabled;
+    data(151) = mParameters.v11_k;
+    data(152) = mParameters.v11_eta_floor;
 
     if (theChannel.sendVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASand::sendSelf failed for tag "
@@ -991,6 +1017,8 @@ RIVASand::restoreState(
     state.physical_eps_v_total=values[i++];
     state.bias_reversible_volume=values[i++];
     RIVA_RESTORE_TENSOR(state.last_host_deviatoric_strain_direction);
+    state.ep_half_last=values[i++];
+    state.eta_m=values[i++];
 #undef RIVA_RESTORE_TENSOR
     state.initialized = initialized;
     return i == RIVA_STATE_VALUE_COUNT ? 0 : -1;
@@ -1014,11 +1042,11 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
     mInitialStage = (int)std::llround(data(6));
     for (int i = 0; i < 6; ++i) mInitialStress(i) = data(7+i);
     setReferenceParameters();
-    mParameters.p_min = data(129);
-    mParameters.p_residual = data(140);
+    mParameters.p_min = data(131);
+    mParameters.p_residual = data(142);
     mParameters.geostatic_admission_enabled =
-        (int32_t)std::llround(data(141));
-    mTangentPressureFloor = riva_max(data(130), mParameters.p_min);
+        (int32_t)std::llround(data(143));
+    mTangentPressureFloor = riva_max(data(132), mParameters.p_min);
     setMaterialParameters(data(13), data(14), data(15), data(16), data(17),
                           data(18), data(19), data(20), data(21), data(22));
     for (int i = 0; i < 6; ++i) mCommittedStrain(i) = data(23+i);
@@ -1026,21 +1054,22 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
     double stateValues[RIVA_STATE_VALUE_COUNT];
     for (int i = 0; i < RIVA_STATE_VALUE_COUNT; ++i)
         stateValues[i] = data(35+i);
-    if (restoreState(stateValues, (int)std::llround(data(128)),
+    if (restoreState(stateValues, (int)std::llround(data(130)),
                      mCommittedState) != 0) return -1;
-    setReversalLatch(std::llround(data(131)) != 0);
-    setAdmitOverbound(std::llround(data(132)) != 0);
-    setNumericalTangent(std::llround(data(133)) != 0);
-    setBetaFloor(data(134));
-    setRecenterActivation(std::llround(data(135)) != 0);
-    setBetaReserve(data(136));
-    setRecenterThreshold(data(137));
-    setPMax(data(138));
-    setProjectActivation(data(139));
-    setBetaCap(data(142));
-    setDiagNoBiasHardening(std::llround(data(143)) != 0);
-    setDiagNoCyclicFlow(std::llround(data(144)) != 0);
-    setL3(data(145), data(146), data(147));
+    setReversalLatch(std::llround(data(133)) != 0);
+    setAdmitOverbound(std::llround(data(134)) != 0);
+    setNumericalTangent(std::llround(data(135)) != 0);
+    setBetaFloor(data(136));
+    setRecenterActivation(std::llround(data(137)) != 0);
+    setBetaReserve(data(138));
+    setRecenterThreshold(data(139));
+    setPMax(data(140));
+    setProjectActivation(data(141));
+    setBetaCap(data(144));
+    setDiagNoBiasHardening(std::llround(data(145)) != 0);
+    setDiagNoCyclicFlow(std::llround(data(146)) != 0);
+    setL3(data(147), data(148), data(149));
+    setV11(std::llround(data(150)) != 0, data(151), data(152));
 
     mValid = mStressScale > 0.0 && mRho >= 0.0 && mFixedSubsteps >= 1 &&
         (mStage == 0 || mStage == 1) && mDr >= 0.0 && mDr <= 1.0 &&

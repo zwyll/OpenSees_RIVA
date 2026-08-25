@@ -44,7 +44,7 @@ typedef struct riva_material_parameters_t {
 
 #define RIVA_PARAMETER_COUNT 118
 #define RIVA_CONSTITUTIVE_PARAMETER_COUNT 114
-#define RIVA_STATE_VALUE_COUNT 94
+#define RIVA_STATE_VALUE_COUNT 95
 #define RIVA_PARAMETER_SHA256 \
     "9585f0c155c9444885c5115e7753a1a5d97c783e2c685938a49a65435c9e8f83"
 
@@ -94,6 +94,16 @@ typedef struct riva_parameters_t {
      * behavior at high plastic activity, partially released ribbons at low.
      * l3_ep_ref <= 0 disables the mechanism bit-for-bit (frozen). */
     double l3_ep_ref, l3_boost_floor, l3_cut_floor;
+    /* V11 research (CycLiq-style memory-surface reload plasticity): when
+     * enabled, (a) the cyclic-flow shear cut is off, (b) the bias-hardening
+     * boost is REPLACED by a stress-ratio-memory factor
+     * (1/clip(eta_m/mb, v11_eta_floor, 1))^v11_k: virgin/biased states are
+     * protected like the boost protected them, but the factor DECAYS to 1
+     * once strong shaking has driven eta near the bound, so reload branches
+     * regain plasticity (hysteretic damping + Dre exchange). Default
+     * disabled = frozen bit-for-bit. */
+    int32_t v11_enabled;
+    double v11_k, v11_eta_floor;
     double bias_hardening_intercept, bias_intercept_exponent;
     double bias_crossing_decay, bias_hardening_scale, bias_margin_exponent;
     double bias_amplitude_ratio, bias_pressure_exponent;
@@ -222,6 +232,12 @@ typedef struct riva_state_t {
     /* plastic multiplier accumulated over the last COMPLETED half-cycle
        (captured from ep_eq_since_reversal at reversal registration) */
     double ep_half_last;
+    /* V11 research: memory of the largest normalized stress ratio
+     * eta = sqrt(3/2)|alpha| ever committed (CycLiqCPSP's eta_m). Drives
+     * the memory-surface hardening factor that replaces the bias boost
+     * under -v11. Tracked unconditionally (cheap), CONSUMED only when
+     * v11_enabled - the frozen path never reads it. */
+    double eta_m;
     int32_t initialized;
 } riva_state_t;
 
@@ -310,6 +326,7 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.static_bias_enabled=1;
     p.diag_no_bias_hardening=0; p.diag_no_cyclic_flow=0;
     p.l3_ep_ref=0.0; p.l3_boost_floor=0.0; p.l3_cut_floor=0.0;
+    p.v11_enabled=0; p.v11_k=2.0; p.v11_eta_floor=0.35;
     p.bias_hardening_intercept=50.0;
     p.bias_intercept_exponent=2.3; p.bias_crossing_decay=3.0;
     p.bias_hardening_scale=335.0; p.bias_margin_exponent=1.5;
@@ -390,6 +407,10 @@ RIVA_HD static inline int riva_material_parameters_valid(
         isfinite(p->p_residual) && p->p_residual>=0.0 &&
         (p->geostatic_admission_enabled==0 ||
          p->geostatic_admission_enabled==1) &&
+        (p->v11_enabled==0 ||
+         (isfinite(p->v11_k) && p->v11_k>=0.0 &&
+          isfinite(p->v11_eta_floor) && p->v11_eta_floor>0.0 &&
+          p->v11_eta_floor<=1.0)) &&
         material->n_G<=1.0;
 }
 
@@ -585,6 +606,7 @@ RIVA_HD static inline void riva_cyclic_flow(const riva_parameters_t *p,
     double pressure,const riva_state_t *s,double *shear_factor,double *hardening_factor)
 {
     if (!p->cyclic_flow_correction_enabled || p->diag_no_cyclic_flow ||
+        p->v11_enabled ||
         s->amplitude_reversals<p->cyclic_flow_minimum_reversals) {
         *shear_factor=1.0; *hardening_factor=1.0; return;
     }
@@ -647,6 +669,15 @@ RIVA_HD static inline double riva_hardening_for_state(const riva_parameters_t *p
     if (p->l3_ep_ref>0.0) {
         const double act=riva_min(1.0,s->ep_half_last/p->l3_ep_ref);
         boost *= p->l3_boost_floor+(1.0-p->l3_boost_floor)*act;
+    }
+    if (p->v11_enabled) {
+        double mb_m,md_m,xi_m;
+        riva_surfaces(p,material,pressure,s->void_ratio,&mb_m,&md_m,&xi_m);
+        (void)md_m; (void)xi_m;
+        const double eta_ratio=riva_clip(
+            s->eta_m/riva_max(mb_m,1.0e-6),p->v11_eta_floor,1.0);
+        value *= pow(1.0/eta_ratio,p->v11_k);
+        boost=0.0;   /* memory factor replaces the bias boost */
     }
     const double pressure_ratio=riva_clip(pressure/riva_max(s->pressure_anchor,riva_cone_pressure_floor(p)),0.0,1.0);
     const double confinement=pow(riva_clip(p->bias_reference_pressure/
@@ -715,6 +746,7 @@ RIVA_HD static inline int riva_initialize_material(const riva_parameters_t *p,
     state->initial_relative_state=xi; state->state_contraction_factor=riva_state_factor(p,xi);
     state->effective_knee_ratio=riva_effective_knee(p,xi);
     state->geostatic_deviator=dev; state->initialized=1;
+    state->eta_m=sqrt(1.5)*riva_norm(state->alpha);
     return 1;
 }
 
@@ -921,6 +953,7 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
 
     state.stress=stress; state.alpha=alpha; state.alpha0=alpha0;
     state.alpha01=alpha01; state.n=normal; state.fabric=fabric;
+    state.eta_m=riva_max(old->eta_m,sqrt(1.5)*riva_norm(alpha));
     state.D_ir=D_ir; state.D_re=D_re; state.D=D_ir+D_re; state.beta=beta;
     state.lambda_total=old->lambda_total+d_lambda;
     state.ep_eq_since_reversal=ep_eq; state.void_ratio=void_ratio;
@@ -1277,6 +1310,7 @@ RIVA_HD static inline int riva_state_values(
     values[i++]=state->bias_reversible_volume;
     RIVA_STATE_TENSOR(state->last_host_deviatoric_strain_direction);
     values[i++]=state->ep_half_last;
+    values[i++]=state->eta_m;
 #undef RIVA_STATE_TENSOR
     return i;
 }
