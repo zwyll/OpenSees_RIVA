@@ -18,7 +18,7 @@
 
 namespace {
 
-const int RIVASerializedSize = 140;
+const int RIVASerializedSize = 142;
 
 bool finiteVector(const Vector &value)
 {
@@ -37,7 +37,8 @@ OPS_RIVASandMaterial(void)
         opserr << "Want: nDMaterial RIVASand tag Dr M kd h m zeta "
                << "eMax eMin Q R nG <-rho value> <-nSub value> "
                << "<-stressScale value> <-pMin value> "
-               << "<-tangentPMin value> <-stage 0|1> "
+               << "<-tangentPMin value> <-pResidual value> "
+               << "<-geostaticAdmission> <-stage 0|1> "
                << "<-initialStress sxx syy szz sxy syz sxz>" << endln;
         return 0;
     }
@@ -61,6 +62,8 @@ OPS_RIVASandMaterial(void)
     double stressScale = 1.0;
     double pMin = -1.0;
     double tangentPressureFloor = -1.0;
+    double residualPressure = 0.0;
+    bool geostaticAdmission = false;
     int fixedSubsteps = 1;
     int stage = 0;
     bool stageSpecified = false;
@@ -174,6 +177,16 @@ OPS_RIVASandMaterial(void)
                        << tag << "; value must be >= 0" << endln;
                 return 0;
             }
+        } else if (std::strcmp(option, "-pResidual") == 0) {
+            count = 1;
+            if (OPS_GetDoubleInput(&count, &residualPressure) < 0 ||
+                !std::isfinite(residualPressure) || residualPressure < 0.0) {
+                opserr << "WARNING invalid -pResidual for RIVASand tag "
+                       << tag << "; value must be nonnegative" << endln;
+                return 0;
+            }
+        } else if (std::strcmp(option, "-geostaticAdmission") == 0) {
+            geostaticAdmission = true;
         } else if (std::strcmp(option, "-stage") == 0) {
             count = 1;
             if (OPS_GetIntInput(&count, &stage) < 0) {
@@ -210,8 +223,8 @@ OPS_RIVASandMaterial(void)
     RIVASand *material = new RIVASand(
         tag, values[0], values[1], values[2], values[3], values[4],
         values[5], values[6], values[7], values[8], values[9], values[10],
-        rho, fixedSubsteps, stressScale, pMin, tangentPressureFloor, stage,
-        initialStress);
+        rho, fixedSubsteps, stressScale, pMin, tangentPressureFloor,
+        residualPressure, geostaticAdmission, stage, initialStress);
     if (material != 0) material->setReversalLatch(reversalLatch);
     if (material != 0) material->setAdmitOverbound(admitOverbound);
     if (material != 0 && noBiasVolume) material->setBiasVolumeEnabled(false);
@@ -235,7 +248,8 @@ RIVASand::RIVASand(
     int tag, double Dr, double M, double kd, double h, double m,
     double zeta, double eMax, double eMin, double Q, double R, double nG,
     double rho, int fixedSubsteps, double stressScale, double pMin,
-    double tangentPressureFloor, int initialStage, const Vector &initialStress)
+    double tangentPressureFloor, double residualPressure,
+    bool geostaticAdmission, int initialStage, const Vector &initialStress)
     : NDMaterial(tag, ND_TAG_RIVASand),
       mDr(Dr), mRho(rho), mStressScale(stressScale),
       mTangentPressureFloor(0.0),
@@ -253,6 +267,8 @@ RIVASand::RIVASand(
     if (initialStress.Size() == 6) mInitialStress = initialStress;
     setReferenceParameters();
     if (pMin > 0.0) mParameters.p_min = pMin;
+    mParameters.p_residual = residualPressure;
+    mParameters.geostatic_admission_enabled = geostaticAdmission ? 1 : 0;
     mTangentPressureFloor = tangentPressureFloor > 0.0 ?
         tangentPressureFloor : mParameters.p_ref/200.0;
     mTangentPressureFloor = riva_max(
@@ -263,6 +279,8 @@ RIVASand::RIVASand(
         mFixedSubsteps < 1 || (mStage != 0 && mStage != 1) ||
         !std::isfinite(mDr) || mDr < 0.0 || mDr > 1.0 ||
         !std::isfinite(mParameters.p_min) || !(mParameters.p_min > 0.0) ||
+        !std::isfinite(mParameters.p_residual) ||
+        mParameters.p_residual < 0.0 ||
         !std::isfinite(mTangentPressureFloor) ||
         !(mTangentPressureFloor > 0.0) ||
         !finiteVector(mInitialStress) ||
@@ -344,10 +362,10 @@ int
 RIVASand::activateFromCommittedStress(void)
 {
     const riva_tensor_t stress = stressToTensor(mCommittedStress);
-    if (!(riva_pressure(stress) > 0.0)) {
+    if (!(riva_cone_pressure(&mParameters, stress) > mParameters.p_min)) {
         opserr << "RIVASand tag " << this->getTag()
-               << " cannot enter stage 1 without compressive committed "
-               << "effective stress" << endln;
+               << " cannot enter stage 1: p' + pResidual must exceed pMin"
+               << endln;
         return -1;
     }
     riva_tensor_t stressUse = stress;
@@ -377,6 +395,19 @@ RIVASand::activateFromCommittedStress(void)
     riva_state_t state = {};
     if (!riva_initialize_material(&mParameters, &mMaterial, stressUse,
                                  initialVoidRatio(), &state)) return -1;
+    if (mParameters.geostatic_admission_enabled) {
+        double mb = 0.0, md = 0.0, xi = 0.0;
+        riva_surfaces(&mParameters, &mMaterial, state.pressure_anchor,
+                      state.void_ratio, &mb, &md, &xi);
+        const double bound = sqrt(2.0/3.0)*mb;
+        if (bound > 0.0 && riva_norm(state.alpha) > bound) {
+            /* Preserve the equilibrated stress exactly.  Recenter only the
+             * bounding-surface mapping origin so the inherited over-bound
+             * state does not create a finite correction at zero strain. */
+            state.alpha0 = state.alpha;
+            state.alpha01 = state.alpha;
+        }
+    }
     riva_tensor_t reference = stressUse;
     reference.xy = reference.yz = reference.xz = 0.0;
     if (!riva_begin_dynamic_phase(&mParameters, reference, &state)) return -1;
@@ -470,7 +501,8 @@ RIVASand::updateTrialTangent(void)
         // the default p_ref/200 tangent floor does not silently alter the
         // calibrated constitutive pressure path.
         const double pressure = riva_max(
-            riva_pressure(mTrialState.stress), mTangentPressureFloor);
+            riva_cone_pressure(&mParameters, mTrialState.stress),
+            mTangentPressureFloor);
         riva_moduli_for_state(&mParameters, &mMaterial, pressure,
                              &mTrialState, &shear, &bulk);
         // A rejected global Newton trial can drive auxiliary state variables
@@ -833,6 +865,8 @@ RIVASand::sendSelf(int commitTag, Channel &theChannel)
     data(137) = mRecenterThreshold;
     data(138) = mParameters.p_max;
     data(139) = mProjectActivation;
+    data(140) = mParameters.p_residual;
+    data(141) = mParameters.geostatic_admission_enabled;
 
     if (theChannel.sendVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASand::sendSelf failed for tag "
@@ -909,6 +943,9 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
     for (int i = 0; i < 6; ++i) mInitialStress(i) = data(7+i);
     setReferenceParameters();
     mParameters.p_min = data(129);
+    mParameters.p_residual = data(140);
+    mParameters.geostatic_admission_enabled =
+        (int32_t)std::llround(data(141));
     mTangentPressureFloor = riva_max(data(130), mParameters.p_min);
     setMaterialParameters(data(13), data(14), data(15), data(16), data(17),
                           data(18), data(19), data(20), data(21), data(22));
@@ -932,6 +969,10 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
     mValid = mStressScale > 0.0 && mRho >= 0.0 && mFixedSubsteps >= 1 &&
         (mStage == 0 || mStage == 1) && mDr >= 0.0 && mDr <= 1.0 &&
         std::isfinite(mParameters.p_min) && mParameters.p_min > 0.0 &&
+        std::isfinite(mParameters.p_residual) &&
+        mParameters.p_residual >= 0.0 &&
+        (mParameters.geostatic_admission_enabled == 0 ||
+         mParameters.geostatic_admission_enabled == 1) &&
         std::isfinite(mTangentPressureFloor) &&
         mTangentPressureFloor > 0.0 &&
         finiteVector(mInitialStress) &&
@@ -964,7 +1005,8 @@ RIVASand::getScalarResponse(int responseID)
         mScalarOutput(0) = mTrialState.initialized ?
             mTrialState.void_ratio : initialVoidRatio();
     } else if (responseID == 5) {
-        const double anchor = mTrialState.pressure_anchor;
+        const double anchor = mTrialState.pressure_anchor-
+            mParameters.p_residual;
         mScalarOutput(0) = mTrialState.initialized && anchor > 0.0 ?
             1.0-riva_pressure(mTrialState.stress)/anchor : 0.0;
     } else if (responseID == 6) {
@@ -1105,6 +1147,9 @@ RIVASand::Print(OPS_Stream &output, int flag)
     output << "  stage=" << mStage << " nSub=" << mFixedSubsteps
            << " stressScale=" << mStressScale
            << " pMin=" << mParameters.p_min
+           << " pResidual=" << mParameters.p_residual
+           << " geostaticAdmission="
+           << mParameters.geostatic_admission_enabled
            << " tangentPMin=" << mTangentPressureFloor
            << " parameterSHA=" << RIVA_PARAMETER_SHA256 << endln;
 }
