@@ -281,12 +281,20 @@ RIVASand::initialVoidRatio(void) const
 int
 RIVASand::activateFromCommittedStress(void)
 {
-    const riva_tensor_t stress = stressToTensor(mCommittedStress);
-    if (!(riva_cone_pressure(&mParameters, stress) > mParameters.p_min)) {
-        opserr << "RIVASand tag " << this->getTag()
-               << " cannot enter stage 1: p' + pResidual must exceed pMin"
-               << endln;
-        return -1;
+    riva_tensor_t stress = stressToTensor(mCommittedStress);
+    const double physicalPressure = riva_pressure(stress);
+    if (!(physicalPressure > mParameters.p_min)) {
+        if (!mParameters.geostatic_admission_enabled ||
+            !std::isfinite(physicalPressure)) {
+            opserr << "RIVASand tag " << this->getTag()
+                   << " cannot enter stage 1: physical p' must exceed pMin"
+                   << endln;
+            return -1;
+        }
+        /* A no-tension cone cannot admit a slightly tensile stress left by
+         * the host gravity solve.  Project only its mean component to pMin;
+         * the following plastic-equilibration stage restores global balance. */
+        stress = riva_sub(riva_dev(stress), riva_iso(mParameters.p_min));
     }
     riva_state_t state = {};
     if (!riva_initialize_material(&mParameters, &mMaterial, stress,
