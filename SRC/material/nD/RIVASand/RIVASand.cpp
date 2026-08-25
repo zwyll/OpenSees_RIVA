@@ -18,7 +18,7 @@
 
 namespace {
 
-const int RIVASerializedSize = 159;
+const int RIVASerializedSize = 162;
 
 bool finiteVector(const Vector &value)
 {
@@ -83,6 +83,8 @@ OPS_RIVASandMaterial(void)
     double v11[7] = {2.0, 0.35, 1.0, 0.0, 1.0, 0.0, 0.0};
     bool v12Enabled = false;
     double v12[2] = {1.0, 0.0};
+    bool v13Enabled = false;
+    double v13[2] = {1.0, 0.3};
     double betaReserve = 0.0;
     double pMax = 0.0;
     double projectActivation = 0.0;
@@ -233,6 +235,16 @@ OPS_RIVASandMaterial(void)
                 return 0;
             }
             v12Enabled = true;
+        } else if (std::strcmp(option, "-v13") == 0) {
+            count = 2;
+            if (OPS_GetDoubleInput(&count, v13) < 0 ||
+                !std::isfinite(v13[0]) || v13[0] <= 0.0 ||
+                !std::isfinite(v13[1]) || v13[1] <= 0.0 || v13[1] > 1.0) {
+                opserr << "WARNING invalid -v13 (hScale etamFloor) for "
+                       << "RIVASand tag " << tag << endln;
+                return 0;
+            }
+            v13Enabled = true;
         } else if (std::strcmp(option, "-l3") == 0) {
             count = 3;
             if (OPS_GetDoubleInput(&count, l3) < 0 ||
@@ -297,6 +309,8 @@ OPS_RIVASandMaterial(void)
         material->setV11Dir(v11[5], v11[6]);
     if (material != 0)
         material->setV12(v12Enabled, v12[0], v12[1]);
+    if (material != 0)
+        material->setV13(v13Enabled, v13[0], v13[1]);
     if (material != 0) material->setBetaReserve(betaReserve);
     if (material != 0) material->setPMax(pMax);
     if (material != 0) material->setProjectActivation(projectActivation);
@@ -839,6 +853,15 @@ RIVASand::setV12(bool enabled, double dirScale, double chi)
 }
 
 void
+RIVASand::setV13(bool enabled, double hScale, double etamFloor)
+{
+    mParameters.v13_enabled = enabled ? 1 : 0;
+    mParameters.v13_h_scale =
+        (std::isfinite(hScale) && hScale > 0.0) ? hScale : 1.0;
+    mParameters.v13_etam_floor = riva_clip(etamFloor, 1.0e-3, 1.0);
+}
+
+void
 RIVASand::setV11Dir(double rdr, double etaIr)
 {
     mParameters.v11_rdr =
@@ -1025,6 +1048,9 @@ RIVASand::sendSelf(int commitTag, Channel &theChannel)
     data(156) = mParameters.v12_enabled;
     data(157) = mParameters.v12_dir_scale;
     data(158) = mParameters.v12_chi;
+    data(159) = mParameters.v13_enabled;
+    data(160) = mParameters.v13_h_scale;
+    data(161) = mParameters.v13_etam_floor;
 
     if (theChannel.sendVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASand::sendSelf failed for tag "
@@ -1132,6 +1158,7 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
     setV11(std::llround(data(150)) != 0, data(151), data(152), data(153));
     setV11Dir(data(154), data(155));
     setV12(std::llround(data(156)) != 0, data(157), data(158));
+    setV13(std::llround(data(159)) != 0, data(160), data(161));
 
     mValid = mStressScale > 0.0 && mRho >= 0.0 && mFixedSubsteps >= 1 &&
         (mStage == 0 || mStage == 1) && mDr >= 0.0 && mDr <= 1.0 &&

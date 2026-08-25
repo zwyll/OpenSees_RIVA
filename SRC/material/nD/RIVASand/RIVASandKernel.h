@@ -137,6 +137,21 @@ typedef struct riva_parameters_t {
      * side. Default off = frozen bit-for-bit. */
     int32_t v12_enabled;
     double v12_dir_scale, v12_chi;
+    /* V13: the beta-mapping surgery. The image-point quadratic maps to the
+     * eta_m MEMORY surface (radius sqrt(2/3)*eta_m_eff, eta_m_eff =
+     * max(eta_m, sqrt(3/2)|alpha|, floor*mb)) instead of the bounding
+     * surface, and the plastic modulus takes CycLiqCPSP's native form
+     * H ~ h*(p/pref)^-qH * v13_h_scale * max(mb/eta_m*(1+beta)-1, 0)^m:
+     * virgin loading at the memory edge keeps finite hardening
+     * (mb/eta_m - 1) while the memory surface grows; once eta_m ~ mb,
+     * reload branches inside the surface get H ~ beta (hysteresis); and
+     * small-amplitude cycles that keep eta_m low are differentially stiff -
+     * the native b-slope that no overlay could manufacture. The flow
+     * normal follows the memory-surface image automatically. Replaces the
+     * boost/l3/v11-memory hardening paths wholesale when on. Pair with
+     * -v12 (D_ir side). Default off = frozen bit-for-bit. */
+    int32_t v13_enabled;
+    double v13_h_scale, v13_etam_floor;
     double bias_hardening_intercept, bias_intercept_exponent;
     double bias_crossing_decay, bias_hardening_scale, bias_margin_exponent;
     double bias_amplitude_ratio, bias_pressure_exponent;
@@ -362,6 +377,7 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.v11_enabled=0; p.v11_k=2.0; p.v11_eta_floor=0.35;
     p.v11_dir_floor=1.0; p.v11_rdr=0.0; p.v11_eta_ir=0.0;
     p.v12_enabled=0; p.v12_dir_scale=1.0; p.v12_chi=0.0;
+    p.v13_enabled=0; p.v13_h_scale=1.0; p.v13_etam_floor=0.3;
     p.bias_hardening_intercept=50.0;
     p.bias_intercept_exponent=2.3; p.bias_crossing_decay=3.0;
     p.bias_hardening_scale=335.0; p.bias_margin_exponent=1.5;
@@ -641,7 +657,7 @@ RIVA_HD static inline void riva_cyclic_flow(const riva_parameters_t *p,
     double pressure,const riva_state_t *s,double *shear_factor,double *hardening_factor)
 {
     if (!p->cyclic_flow_correction_enabled || p->diag_no_cyclic_flow ||
-        p->v11_enabled ||
+        p->v11_enabled || p->v12_enabled ||
         s->amplitude_reversals<p->cyclic_flow_minimum_reversals) {
         *shear_factor=1.0; *hardening_factor=1.0; return;
     }
@@ -698,6 +714,19 @@ RIVA_HD static inline double riva_hardening_for_state(const riva_parameters_t *p
 {
     const double ratio=riva_max(pressure,riva_cone_pressure_floor(p))/p->p_ref;
     double value=material->h*pow(ratio,-p->q_H);
+    if (p->v13_enabled) {
+        /* CycLiq-native plastic modulus on the eta_m memory surface;
+         * replaces boost/l3/v11-memory/shakedown wholesale. The bracket is
+         * folded here so the backbone's beta^m factor is neutralized. */
+        double mb_h,md_h,xi_h;
+        riva_surfaces(p,material,pressure,s->void_ratio,&mb_h,&md_h,&xi_h);
+        (void)md_h; (void)xi_h;
+        const double etam=riva_max(riva_max(s->eta_m,
+            p->v13_etam_floor*mb_h),1.0e-6);
+        const double bracket=riva_max(
+            mb_h/etam*(1.0+riva_min(s->beta,p->beta0))-1.0,1.0e-9);
+        return value*p->v13_h_scale*pow(bracket,material->m);
+    }
     double sf,hf; riva_cyclic_flow(p,pressure,s,&sf,&hf); (void)sf;
     value *= hf;
     double boost=p->diag_no_bias_hardening?0.0:riva_bias_hardening(p,s);
@@ -936,6 +965,7 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
     double beta_h=riva_max(beta_t,riva_max(p->beta_floor,1.0e-12));
     if (p->beta_cap>0.0 && beta_h>p->beta_cap) beta_h=p->beta_cap;
     double hardening_beta=pow(beta_h,material->m);
+    if (p->v13_enabled) hardening_beta=1.0;  /* bracket lives in h_eff */
     if (p->beta_reserve>0.0 && old->reversals==0) {
         /* State-dependent gate: the reserve engages only when the committed
          * stress ratio sits within 80% of the bounding surface ??the regime
@@ -997,7 +1027,15 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
     const riva_tensor_t offset=riva_sub(alpha,alpha0);
     const double qa=riva_ddot(offset,offset);
     const double qb=2.0*riva_ddot(offset,alpha);
-    const double qc=riva_ddot(alpha,alpha)-(2.0/3.0)*mb*mb;
+    double surf_sq=(2.0/3.0)*mb*mb;
+    if (p->v13_enabled) {
+        /* map to the eta_m memory surface; eta_m_eff >= current |alpha|
+         * guarantees a nonnegative root even mid-branch */
+        const double etam_eff=riva_max(riva_max(old->eta_m,
+            sqrt(1.5)*riva_norm(alpha)),p->v13_etam_floor*mb);
+        surf_sq=(2.0/3.0)*etam_eff*etam_eff;
+    }
+    const double qc=riva_ddot(alpha,alpha)-surf_sq;
     const double disc=qb*qb-4.0*qa*qc;
     int64_t beta_fallbacks=old->beta_fallbacks;
     double beta;
