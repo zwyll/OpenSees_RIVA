@@ -79,6 +79,21 @@ typedef struct riva_parameters_t {
     double loose_knee_state_exponent, dense_knee_state_exponent;
     double effective_knee_minimum;
     int32_t static_bias_enabled;
+    /* Research diagnostics (attribution of the sub-triggering damping hole).
+     * Both default 0 = frozen behavior bit-for-bit. diag_no_bias_hardening
+     * zeroes ONLY the bias-hardening boost inside riva_hardening_for_state;
+     * diag_no_cyclic_flow makes riva_cyclic_flow return unity factors. */
+    int32_t diag_no_bias_hardening, diag_no_cyclic_flow;
+    /* L3 research: continuous plastic-activity scaling of the two
+     * sub-triggering suppressors (attribution 2026-08-25: the bias-hardening
+     * boost supplies the "elastic" half of the zero-dissipation ribbons, the
+     * cyclic-flow shear cut the "soft" half; zeroing both overshoots to
+     * xi ~ 28%). activity = min(1, ep_half_last / l3_ep_ref), latched per
+     * half-cycle at reversal registration, so there is no per-step feedback.
+     * Each suppressor scales as floor + (1-floor)*activity: fully calibrated
+     * behavior at high plastic activity, partially released ribbons at low.
+     * l3_ep_ref <= 0 disables the mechanism bit-for-bit (frozen). */
+    double l3_ep_ref, l3_boost_floor, l3_cut_floor;
     double bias_hardening_intercept, bias_intercept_exponent;
     double bias_crossing_decay, bias_hardening_scale, bias_margin_exponent;
     double bias_amplitude_ratio, bias_pressure_exponent;
@@ -166,6 +181,18 @@ typedef struct riva_parameters_t {
      * so cyclic calibration is untouched by construction. Default 0
      * preserves the frozen behavior bit-for-bit. */
     double beta_reserve;
+    /* Opt-in ceiling on beta AT THE HARDENING USE-SITE ONLY (research:
+     * sub-triggering hysteretic damping). Right after a reversal the mapping
+     * distance beta is huge (beta0 = 1e3 at re-registration), so the plastic
+     * modulus p*h_eff*beta^m is effectively infinite and every unload-reload
+     * branch is elastic: zero-area loops, xi ~ 0.5% at moderate strain where
+     * element tests show ~9%. Capping beta bounds the early-branch plastic
+     * modulus so each branch dissipates a controlled amount, while the
+     * near-bound region (beta << cap) that controls strength and triggering
+     * is untouched. beta's stored evolution, the mapping, and dilatancy all
+     * see the true beta. Default 0 preserves the frozen behavior
+     * bit-for-bit. */
+    double beta_cap;
     /* Opt-in ceiling on mean effective stress. Garbage Newton trial strains
      * (equilibrium exploration, not physics) otherwise produce astronomic
      * pressures that push the linear solver into numerically fragile
@@ -280,7 +307,10 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.cyclic_flow_pressure_exponent=0.5; p.cyclic_flow_minimum_reversals=1;
     p.state_dependent_knee_enabled=1; p.loose_knee_state_exponent=3.7;
     p.dense_knee_state_exponent=0.0; p.effective_knee_minimum=0.20;
-    p.static_bias_enabled=1; p.bias_hardening_intercept=50.0;
+    p.static_bias_enabled=1;
+    p.diag_no_bias_hardening=0; p.diag_no_cyclic_flow=0;
+    p.l3_ep_ref=0.0; p.l3_boost_floor=0.0; p.l3_cut_floor=0.0;
+    p.bias_hardening_intercept=50.0;
     p.bias_intercept_exponent=2.3; p.bias_crossing_decay=3.0;
     p.bias_hardening_scale=335.0; p.bias_margin_exponent=1.5;
     p.bias_amplitude_ratio=1.0; p.bias_pressure_exponent=0.5;
@@ -326,6 +356,7 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.admit_inherited_overbound=0;
     p.beta_floor=0.0;
     p.beta_reserve=0.0;
+    p.beta_cap=0.0;
     p.p_max=0.0;
     return p;
 }
@@ -553,7 +584,7 @@ RIVA_HD static inline double riva_shakedown_compliance(const riva_parameters_t *
 RIVA_HD static inline void riva_cyclic_flow(const riva_parameters_t *p,
     double pressure,const riva_state_t *s,double *shear_factor,double *hardening_factor)
 {
-    if (!p->cyclic_flow_correction_enabled ||
+    if (!p->cyclic_flow_correction_enabled || p->diag_no_cyclic_flow ||
         s->amplitude_reversals<p->cyclic_flow_minimum_reversals) {
         *shear_factor=1.0; *hardening_factor=1.0; return;
     }
@@ -568,7 +599,12 @@ RIVA_HD static inline void riva_cyclic_flow(const riva_parameters_t *p,
        data) -- model-owner territory. Kept frozen. */
     const double ratio=riva_clip(pressure/riva_max(s->pressure_anchor,riva_cone_pressure_floor(p)),0.0,1.0);
     const double activity=pow(ratio,p->cyclic_flow_pressure_exponent);
-    *shear_factor=1.0-p->cyclic_shear_modulus_reduction*activity;
+    double w_cut=1.0;
+    if (p->l3_ep_ref>0.0) {
+        const double act=riva_min(1.0,s->ep_half_last/p->l3_ep_ref);
+        w_cut=p->l3_cut_floor+(1.0-p->l3_cut_floor)*act;
+    }
+    *shear_factor=1.0-p->cyclic_shear_modulus_reduction*activity*w_cut;
     *hardening_factor=1.0+p->cyclic_hardening_boost*activity;
 }
 
@@ -607,7 +643,11 @@ RIVA_HD static inline double riva_hardening_for_state(const riva_parameters_t *p
     double value=material->h*pow(ratio,-p->q_H);
     double sf,hf; riva_cyclic_flow(p,pressure,s,&sf,&hf); (void)sf;
     value *= hf;
-    const double boost=riva_bias_hardening(p,s);
+    double boost=p->diag_no_bias_hardening?0.0:riva_bias_hardening(p,s);
+    if (p->l3_ep_ref>0.0) {
+        const double act=riva_min(1.0,s->ep_half_last/p->l3_ep_ref);
+        boost *= p->l3_boost_floor+(1.0-p->l3_boost_floor)*act;
+    }
     const double pressure_ratio=riva_clip(pressure/riva_max(s->pressure_anchor,riva_cone_pressure_floor(p)),0.0,1.0);
     const double confinement=pow(riva_clip(p->bias_reference_pressure/
         riva_max(s->pressure_anchor,riva_cone_pressure_floor(p)),0.25,4.0),p->bias_confinement_exponent);
@@ -797,8 +837,9 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
     if (reversal) riva_register_reversal(p,old,&alpha0,&alpha01,&ep_eq,&beta_t,&reversals);
 
     const double alpha_n_t=riva_ddot(old->alpha,old->n);
-    double hardening_beta=
-        pow(riva_max(beta_t,riva_max(p->beta_floor,1.0e-12)),material->m);
+    double beta_h=riva_max(beta_t,riva_max(p->beta_floor,1.0e-12));
+    if (p->beta_cap>0.0 && beta_h>p->beta_cap) beta_h=p->beta_cap;
+    double hardening_beta=pow(beta_h,material->m);
     if (p->beta_reserve>0.0 && old->reversals==0) {
         /* State-dependent gate: the reserve engages only when the committed
          * stress ratio sits within 80% of the bounding surface ??the regime

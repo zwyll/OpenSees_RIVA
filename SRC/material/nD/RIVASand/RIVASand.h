@@ -66,6 +66,10 @@ public:
     void setBiasVolumeEnabled(bool enabled);
     void setNumericalTangent(bool enabled);
     void setBetaFloor(double value);
+    void setBetaCap(double value);
+    void setDiagNoBiasHardening(bool enabled);
+    void setDiagNoCyclicFlow(bool enabled);
+    void setL3(double epRef, double boostFloor, double cutFloor);
     void setBetaReserve(double value);
     void setPMax(double value);
     void setProjectActivation(double value);

@@ -18,7 +18,7 @@
 
 namespace {
 
-const int RIVASerializedSize = 142;
+const int RIVASerializedSize = 148;
 
 bool finiteVector(const Vector &value)
 {
@@ -75,6 +75,10 @@ OPS_RIVASandMaterial(void)
     bool recenterActivation = false;
     double recenterThreshold = 0.9;
     double betaFloor = 0.0;
+    double betaCap = 0.0;
+    bool noBiasHardening = false;
+    bool noCyclicFlow = false;
+    double l3[3] = {0.0, 0.0, 0.0};
     double betaReserve = 0.0;
     double pMax = 0.0;
     double projectActivation = 0.0;
@@ -151,6 +155,14 @@ OPS_RIVASandMaterial(void)
                        << tag << "; value must be >= 0" << endln;
                 return 0;
             }
+        } else if (std::strcmp(option, "-betaCap") == 0) {
+            count = 1;
+            if (OPS_GetDoubleInput(&count, &betaCap) < 0 ||
+                !std::isfinite(betaCap) || betaCap < 0.0) {
+                opserr << "WARNING invalid -betaCap for RIVASand tag "
+                       << tag << "; value must be >= 0" << endln;
+                return 0;
+            }
         } else if (std::strcmp(option, "-projectActivation") == 0) {
             count = 1;
             if (OPS_GetDoubleInput(&count, &projectActivation) < 0 ||
@@ -187,6 +199,20 @@ OPS_RIVASandMaterial(void)
             }
         } else if (std::strcmp(option, "-geostaticAdmission") == 0) {
             geostaticAdmission = true;
+        } else if (std::strcmp(option, "-noBiasHardening") == 0) {
+            noBiasHardening = true;   // research diagnostic
+        } else if (std::strcmp(option, "-noCyclicFlow") == 0) {
+            noCyclicFlow = true;      // research diagnostic
+        } else if (std::strcmp(option, "-l3") == 0) {
+            count = 3;
+            if (OPS_GetDoubleInput(&count, l3) < 0 ||
+                !std::isfinite(l3[0]) || !std::isfinite(l3[1]) ||
+                !std::isfinite(l3[2]) || l3[1] < 0.0 || l3[1] > 1.0 ||
+                l3[2] < 0.0 || l3[2] > 1.0) {
+                opserr << "WARNING invalid -l3 (epRef boostFloor cutFloor) "
+                       << "for RIVASand tag " << tag << endln;
+                return 0;
+            }
         } else if (std::strcmp(option, "-stage") == 0) {
             count = 1;
             if (OPS_GetIntInput(&count, &stage) < 0) {
@@ -230,6 +256,10 @@ OPS_RIVASandMaterial(void)
     if (material != 0 && noBiasVolume) material->setBiasVolumeEnabled(false);
     if (material != 0) material->setNumericalTangent(numericalTangent);
     if (material != 0) material->setBetaFloor(betaFloor);
+    if (material != 0) material->setBetaCap(betaCap);
+    if (material != 0) material->setDiagNoBiasHardening(noBiasHardening);
+    if (material != 0) material->setDiagNoCyclicFlow(noCyclicFlow);
+    if (material != 0) material->setL3(l3[0], l3[1], l3[2]);
     if (material != 0) material->setBetaReserve(betaReserve);
     if (material != 0) material->setPMax(pMax);
     if (material != 0) material->setProjectActivation(projectActivation);
@@ -724,6 +754,34 @@ RIVASand::setBetaFloor(double value)
 }
 
 void
+RIVASand::setBetaCap(double value)
+{
+    mParameters.beta_cap =
+        (std::isfinite(value) && value > 0.0) ? value : 0.0;
+}
+
+void
+RIVASand::setDiagNoBiasHardening(bool enabled)
+{
+    mParameters.diag_no_bias_hardening = enabled ? 1 : 0;
+}
+
+void
+RIVASand::setDiagNoCyclicFlow(bool enabled)
+{
+    mParameters.diag_no_cyclic_flow = enabled ? 1 : 0;
+}
+
+void
+RIVASand::setL3(double epRef, double boostFloor, double cutFloor)
+{
+    mParameters.l3_ep_ref =
+        (std::isfinite(epRef) && epRef > 0.0) ? epRef : 0.0;
+    mParameters.l3_boost_floor = riva_clip(boostFloor, 0.0, 1.0);
+    mParameters.l3_cut_floor = riva_clip(cutFloor, 0.0, 1.0);
+}
+
+void
 RIVASand::setRecenterActivation(bool enabled)
 {
     mRecenterActivation = enabled;
@@ -875,6 +933,12 @@ RIVASand::sendSelf(int commitTag, Channel &theChannel)
     data(139) = mProjectActivation;
     data(140) = mParameters.p_residual;
     data(141) = mParameters.geostatic_admission_enabled;
+    data(142) = mParameters.beta_cap;
+    data(143) = mParameters.diag_no_bias_hardening;
+    data(144) = mParameters.diag_no_cyclic_flow;
+    data(145) = mParameters.l3_ep_ref;
+    data(146) = mParameters.l3_boost_floor;
+    data(147) = mParameters.l3_cut_floor;
 
     if (theChannel.sendVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASand::sendSelf failed for tag "
@@ -973,6 +1037,10 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
     setRecenterThreshold(data(137));
     setPMax(data(138));
     setProjectActivation(data(139));
+    setBetaCap(data(142));
+    setDiagNoBiasHardening(std::llround(data(143)) != 0);
+    setDiagNoCyclicFlow(std::llround(data(144)) != 0);
+    setL3(data(145), data(146), data(147));
 
     mValid = mStressScale > 0.0 && mRho >= 0.0 && mFixedSubsteps >= 1 &&
         (mStage == 0 || mStage == 1) && mDr >= 0.0 && mDr <= 1.0 &&
