@@ -111,6 +111,17 @@ typedef struct riva_parameters_t {
      * amplitude-agnostic; v11_dir_floor = 1.0 reproduces that, smaller
      * values keep part of the calibrated amplitude shape. */
     double v11_dir_floor;
+    /* V11 A4 (CycLiqCPSP Dir transplant, the two decay terms that shape the
+     * N-dependence of biased triggering):
+     * - v11_rdr: within-branch "gammamonos" decay, w = (rdr/(rdr+ep_eq))^2
+     *   with ep_eq = ep_eq_since_reversal (resets at each registered
+     *   reversal). Fresh contraction burst per branch, fading with monotonic
+     *   plastic strain - CycLiq's rdr term.
+     * - v11_eta_ir: saturation brake exp(-eta_ir*|eps_v_irreversible|) -
+     *   CycLiq's exp(-eta*epsvir): accumulated irreversible contraction
+     *   progressively shuts further contraction down (the high-N brake).
+     * Both default 0 = off (bit-exact even under v11). */
+    double v11_rdr, v11_eta_ir;
     double bias_hardening_intercept, bias_intercept_exponent;
     double bias_crossing_decay, bias_hardening_scale, bias_margin_exponent;
     double bias_amplitude_ratio, bias_pressure_exponent;
@@ -334,7 +345,7 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.diag_no_bias_hardening=0; p.diag_no_cyclic_flow=0;
     p.l3_ep_ref=0.0; p.l3_boost_floor=0.0; p.l3_cut_floor=0.0;
     p.v11_enabled=0; p.v11_k=2.0; p.v11_eta_floor=0.35;
-    p.v11_dir_floor=1.0;
+    p.v11_dir_floor=1.0; p.v11_rdr=0.0; p.v11_eta_ir=0.0;
     p.bias_hardening_intercept=50.0;
     p.bias_intercept_exponent=2.3; p.bias_crossing_decay=3.0;
     p.bias_hardening_scale=335.0; p.bias_margin_exponent=1.5;
@@ -824,6 +835,15 @@ RIVA_HD static inline double riva_irreversible_factor(const riva_parameters_t *p
     double factor=amp*s->state_contraction_factor;
     const double bias=riva_projected_bias(s);
     factor *= 1.0+p->bias_contraction_scale*pow(bias,p->bias_contraction_exponent);
+    if (p->v11_enabled) {
+        if (p->v11_rdr>0.0) {
+            const double w=p->v11_rdr/
+                (p->v11_rdr+riva_max(s->ep_eq_since_reversal,0.0));
+            factor *= w*w;
+        }
+        if (p->v11_eta_ir>0.0)
+            factor *= exp(-p->v11_eta_ir*fabs(s->eps_v_irreversible));
+    }
     return factor;
 }
 
