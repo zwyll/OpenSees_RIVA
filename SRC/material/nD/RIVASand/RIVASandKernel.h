@@ -104,6 +104,13 @@ typedef struct riva_parameters_t {
      * disabled = frozen bit-for-bit. */
     int32_t v11_enabled;
     double v11_k, v11_eta_floor;
+    /* V11 A2: floor on the amplitude factor AS APPLIED TO D_ir only.
+     * The 0.05 amplitude floor starves plastic contraction at small cyclic
+     * amplitudes (field CSR ~0.1), which is what the cyclic-flow shear cut
+     * was compensating for as a strain-amplifying pump. CycLiqCPSP's Dir is
+     * amplitude-agnostic; v11_dir_floor = 1.0 reproduces that, smaller
+     * values keep part of the calibrated amplitude shape. */
+    double v11_dir_floor;
     double bias_hardening_intercept, bias_intercept_exponent;
     double bias_crossing_decay, bias_hardening_scale, bias_margin_exponent;
     double bias_amplitude_ratio, bias_pressure_exponent;
@@ -327,6 +334,7 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.diag_no_bias_hardening=0; p.diag_no_cyclic_flow=0;
     p.l3_ep_ref=0.0; p.l3_boost_floor=0.0; p.l3_cut_floor=0.0;
     p.v11_enabled=0; p.v11_k=2.0; p.v11_eta_floor=0.35;
+    p.v11_dir_floor=1.0;
     p.bias_hardening_intercept=50.0;
     p.bias_intercept_exponent=2.3; p.bias_crossing_decay=3.0;
     p.bias_hardening_scale=335.0; p.bias_margin_exponent=1.5;
@@ -811,7 +819,9 @@ RIVA_HD static inline void riva_dilatancy(const riva_parameters_t *p,
 RIVA_HD static inline double riva_irreversible_factor(const riva_parameters_t *p,
     const riva_state_t *s)
 {
-    double factor=s->amplitude_factor*s->state_contraction_factor;
+    double amp=s->amplitude_factor;
+    if (p->v11_enabled && amp<p->v11_dir_floor) amp=p->v11_dir_floor;
+    double factor=amp*s->state_contraction_factor;
     const double bias=riva_projected_bias(s);
     factor *= 1.0+p->bias_contraction_scale*pow(bias,p->bias_contraction_exponent);
     return factor;

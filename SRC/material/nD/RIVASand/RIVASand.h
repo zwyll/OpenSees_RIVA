@@ -70,7 +70,7 @@ public:
     void setDiagNoBiasHardening(bool enabled);
     void setDiagNoCyclicFlow(bool enabled);
     void setL3(double epRef, double boostFloor, double cutFloor);
-    void setV11(bool enabled, double k, double etaFloor);
+    void setV11(bool enabled, double k, double etaFloor, double dirFloor);
     void setBetaReserve(double value);
     void setPMax(double value);
     void setProjectActivation(double value);

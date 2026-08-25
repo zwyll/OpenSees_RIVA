@@ -18,7 +18,7 @@
 
 namespace {
 
-const int RIVASerializedSize = 153;
+const int RIVASerializedSize = 154;
 
 bool finiteVector(const Vector &value)
 {
@@ -80,7 +80,7 @@ OPS_RIVASandMaterial(void)
     bool noCyclicFlow = false;
     double l3[3] = {0.0, 0.0, 0.0};
     bool v11Enabled = false;
-    double v11[2] = {2.0, 0.35};
+    double v11[3] = {2.0, 0.35, 1.0};
     double betaReserve = 0.0;
     double pMax = 0.0;
     double projectActivation = 0.0;
@@ -206,12 +206,13 @@ OPS_RIVASandMaterial(void)
         } else if (std::strcmp(option, "-noCyclicFlow") == 0) {
             noCyclicFlow = true;      // research diagnostic
         } else if (std::strcmp(option, "-v11") == 0) {
-            count = 2;
+            count = 3;
             if (OPS_GetDoubleInput(&count, v11) < 0 ||
                 !std::isfinite(v11[0]) || v11[0] < 0.0 ||
-                !std::isfinite(v11[1]) || v11[1] <= 0.0 || v11[1] > 1.0) {
-                opserr << "WARNING invalid -v11 (k etaFloor) for RIVASand "
-                       << "tag " << tag << endln;
+                !std::isfinite(v11[1]) || v11[1] <= 0.0 || v11[1] > 1.0 ||
+                !std::isfinite(v11[2]) || v11[2] <= 0.0 || v11[2] > 1.0) {
+                opserr << "WARNING invalid -v11 (k etaFloor dirFloor) for "
+                       << "RIVASand tag " << tag << endln;
                 return 0;
             }
             v11Enabled = true;
@@ -272,7 +273,7 @@ OPS_RIVASandMaterial(void)
     if (material != 0) material->setDiagNoBiasHardening(noBiasHardening);
     if (material != 0) material->setDiagNoCyclicFlow(noCyclicFlow);
     if (material != 0) material->setL3(l3[0], l3[1], l3[2]);
-    if (material != 0) material->setV11(v11Enabled, v11[0], v11[1]);
+    if (material != 0) material->setV11(v11Enabled, v11[0], v11[1], v11[2]);
     if (material != 0) material->setBetaReserve(betaReserve);
     if (material != 0) material->setPMax(pMax);
     if (material != 0) material->setProjectActivation(projectActivation);
@@ -795,12 +796,13 @@ RIVASand::setL3(double epRef, double boostFloor, double cutFloor)
 }
 
 void
-RIVASand::setV11(bool enabled, double k, double etaFloor)
+RIVASand::setV11(bool enabled, double k, double etaFloor, double dirFloor)
 {
     mParameters.v11_enabled = enabled ? 1 : 0;
     mParameters.v11_k =
         (std::isfinite(k) && k >= 0.0) ? k : 2.0;
     mParameters.v11_eta_floor = riva_clip(etaFloor, 1.0e-3, 1.0);
+    mParameters.v11_dir_floor = riva_clip(dirFloor, 1.0e-3, 1.0);
 }
 
 void
@@ -965,6 +967,7 @@ RIVASand::sendSelf(int commitTag, Channel &theChannel)
     data(150) = mParameters.v11_enabled;
     data(151) = mParameters.v11_k;
     data(152) = mParameters.v11_eta_floor;
+    data(153) = mParameters.v11_dir_floor;
 
     if (theChannel.sendVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASand::sendSelf failed for tag "
@@ -1069,7 +1072,7 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
     setDiagNoBiasHardening(std::llround(data(145)) != 0);
     setDiagNoCyclicFlow(std::llround(data(146)) != 0);
     setL3(data(147), data(148), data(149));
-    setV11(std::llround(data(150)) != 0, data(151), data(152));
+    setV11(std::llround(data(150)) != 0, data(151), data(152), data(153));
 
     mValid = mStressScale > 0.0 && mRho >= 0.0 && mFixedSubsteps >= 1 &&
         (mStage == 0 || mStage == 1) && mDr >= 0.0 && mDr <= 1.0 &&
