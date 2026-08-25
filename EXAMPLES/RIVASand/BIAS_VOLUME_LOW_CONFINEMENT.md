@@ -118,3 +118,25 @@ with ep_cal ~ 3e-3) necessarily rescales that golden half-cycle — i.e. the
 proper fix REQUIRES re-freezing the oracle and re-checking the DSS
 calibration. That decision belongs to the model owner; the infrastructure
 for it (ep_half_last state + gate plumbing) is in place on this branch.
+
+## Open behavior question: K_alpha regime (non-reversing biased cycling)
+
+Stress-controlled DSS at sigma_v0 = 40 kPa, Dr 0.641, alpha = 0.25-0.375,
+CSR = 0.15 (tau never reverses sign) shakes down after ~2 cycles to a CLOSED
+soft ribbon: zero hysteresis-loop area (~0.005 kPa/cycle vs 0.43 for the
+reversing CSR-0.30 twin), zero ratcheting, r_u plateau ~0.26. State trace:
+`amplitude_factor` pins at its 0.05 minimum from cycle 1 (cyc_amp ~ 0.19-0.21
+vs cyclic_amplitude_reference 0.409 with low_amplitude_exponent 6), so the
+plastic driver is throttled ~20x and D_ir drops to ~5e-5/cycle while beta
+sits at 0.17-0.28 (near the bound). A secant this soft with no dissipation is
+un-Masing-like; lab non-reversing bias tests on sands show r_u plateaus (which
+the model captures) but retain measurable hysteretic damping and slow
+ratcheting. The calibrated envelope only contains strain-controlled +/-0.5%
+cycles (amplitude ~0.4+), so the moderate-amplitude biased regime is again
+outside it. In BVPs this regime is the seismic RAMP of every biased point —
+it may explain the simulated pore-pressure buildup lagging the centrifuge at
+mid-depth sensors during moderate shaking. Question for the model owner: is
+the amplitude_factor floor (0.05) intended to suppress plasticity this hard
+at half the reference amplitude, or should the low-amplitude knee
+(low_amplitude_knee_ratio 0.85 / exponent 6) be recalibrated against
+moderate-CSR biased lab data?
