@@ -42,15 +42,16 @@ typedef struct riva_material_parameters_t {
 #define RIVA_HD
 #endif
 
-#define RIVA_PARAMETER_COUNT 116
-#define RIVA_CONSTITUTIVE_PARAMETER_COUNT 112
+#define RIVA_PARAMETER_COUNT 118
+#define RIVA_CONSTITUTIVE_PARAMETER_COUNT 114
 #define RIVA_STATE_VALUE_COUNT 93
 #define RIVA_PARAMETER_SHA256 \
     "9585f0c155c9444885c5115e7753a1a5d97c783e2c685938a49a65435c9e8f83"
 
 typedef struct riva_parameters_t {
     double E_ref, nu, h, m, M, kd, zeta, beta0, overshoot_strain;
-    double p_ref, p_min, n_G, q_H, denominator_floor_ratio;
+    double p_ref, p_min, p_residual, n_G, q_H, denominator_floor_ratio;
+    int32_t geostatic_admission_enabled;
     int32_t state_enabled;
     double e_max, e_min, p_atm, Q, R, n_b, n_d, relative_state_limit;
     int32_t fabric_enabled;
@@ -167,6 +168,16 @@ RIVA_HD static inline riva_tensor_t riva_dev(riva_tensor_t a)
 { return riva_sub(a,riva_iso(riva_trace(a)/3.0)); }
 RIVA_HD static inline double riva_pressure(riva_tensor_t stress)
 { return -riva_trace(stress)/3.0; }
+/* Research low-confinement translation.  With p_residual=0 this is exactly
+ * the frozen RIVA-Sand pressure.  A positive value translates the cone apex
+ * without changing the physical effective-stress tensor returned to the
+ * host. */
+RIVA_HD static inline double riva_cone_pressure(
+    const riva_parameters_t *p,riva_tensor_t stress)
+{ return riva_pressure(stress)+p->p_residual; }
+RIVA_HD static inline double riva_physical_pressure(
+    const riva_parameters_t *p,double cone_pressure)
+{ return cone_pressure-p->p_residual; }
 RIVA_HD static inline double riva_q(riva_tensor_t stress)
 { riva_tensor_t s=riva_dev(stress); return sqrt(riva_max(1.5*riva_ddot(s,s),0.0)); }
 RIVA_HD static inline int riva_finite_tensor(riva_tensor_t a)
@@ -181,6 +192,7 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.h=122.44207260468994; p.m=0.945; p.M=1.25; p.kd=1.125;
     p.zeta=0.025; p.beta0=1.0e3; p.overshoot_strain=5.0e-5;
     p.p_ref=101.3*stress_scale; p.p_min=1.0e-3*stress_scale;
+    p.p_residual=0.0; p.geostatic_admission_enabled=0;
     p.n_G=0.65; p.q_H=0.35; p.denominator_floor_ratio=0.02;
     p.state_enabled=1; p.e_max=0.78; p.e_min=0.51;
     p.p_atm=101.3*stress_scale; p.Q=10.0; p.R=1.5;
@@ -273,6 +285,9 @@ RIVA_HD static inline int riva_material_parameters_valid(
         isfinite(material->Q) && material->Q>0.0 &&
         isfinite(material->R) && material->R>=0.0 &&
         isfinite(material->n_G) && material->n_G>=0.0 &&
+        isfinite(p->p_residual) && p->p_residual>=0.0 &&
+        (p->geostatic_admission_enabled==0 ||
+         p->geostatic_admission_enabled==1) &&
         material->n_G<=1.0;
 }
 
@@ -523,7 +538,7 @@ RIVA_HD static inline int riva_initialize_material(const riva_parameters_t *p,
     const riva_material_parameters_t *material,riva_tensor_t stress,
     double void_ratio,riva_state_t *state)
 {
-    const double pressure=riva_pressure(stress);
+    const double pressure=riva_cone_pressure(p,stress);
     if (!riva_material_parameters_valid(p,material) || !(pressure>0.0) ||
         !isfinite(pressure) || !isfinite(void_ratio)) return 0;
     *state=riva_state_t{};
@@ -629,7 +644,7 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
 {
     riva_state_t state=*old;
     const riva_tensor_t s_t=riva_dev(old->stress);
-    const double p_t=riva_max(riva_pressure(old->stress),p->p_min);
+    const double p_t=riva_max(riva_cone_pressure(p,old->stress),p->p_min);
     double shear,bulk;
     riva_moduli_for_state(p,material,p_t,old,&shear,&bulk);
     const double h_eff=riva_hardening_for_state(p,material,p_t,old);
@@ -688,7 +703,8 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
         pressure=riva_max(p_t-bulk*(deps_v+d_lambda*(d_ir+d_re)),p->p_min);
         at_floor=pressure<=p->p_min;
     }
-    riva_tensor_t stress=riva_sub(s,riva_iso(pressure));
+    riva_tensor_t stress=riva_sub(
+        s,riva_iso(riva_physical_pressure(p,pressure)));
     ep_eq += d_lambda;
     const double void_ratio=old->void_ratio+(1.0+old->void_ratio)*deps_v;
     riva_tensor_t fabric=old->fabric;
@@ -701,11 +717,14 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
     riva_surfaces(p,material,pressure,void_ratio,&mb,&md,&xi);
     (void)md; (void)xi;
     riva_tensor_t alpha=riva_scale(s,1.0/pressure);
-    const double alpha_limit=sqrt(2.0/3.0)*mb;
+    double alpha_limit=sqrt(2.0/3.0)*mb;
+    if (p->geostatic_admission_enabled)
+        alpha_limit=riva_max(alpha_limit,riva_norm(old->alpha));
     const double alpha_norm=riva_norm(alpha);
     if (alpha_norm>alpha_limit) {
         alpha=riva_scale(alpha,alpha_limit/alpha_norm);
-        s=riva_scale(alpha,pressure); stress=riva_sub(s,riva_iso(pressure));
+        s=riva_scale(alpha,pressure);
+        stress=riva_sub(s,riva_iso(riva_physical_pressure(p,pressure)));
     }
     const riva_tensor_t offset=riva_sub(alpha,alpha0);
     const double qa=riva_ddot(offset,offset);
@@ -869,7 +888,8 @@ RIVA_HD static inline riva_state_t riva_without_reversible_bias(
         p,material,mechanical.eps_v_confining,
         mechanical.pressure_anchor,&at_floor); (void)at_floor;
     mechanical.alpha=riva_scale(dev,1.0/pressure);
-    mechanical.stress=riva_sub(dev,riva_iso(pressure));
+    mechanical.stress=riva_sub(
+        dev,riva_iso(riva_physical_pressure(p,pressure)));
     return mechanical;
 }
 
@@ -912,7 +932,8 @@ RIVA_HD static inline riva_state_t riva_forward_euler(
             p,material,state.eps_v_confining,
             state.pressure_anchor,&at_floor);
         state.alpha=riva_scale(dev,1.0/pressure);
-        state.stress=riva_sub(dev,riva_iso(pressure));
+        state.stress=riva_sub(
+            dev,riva_iso(riva_physical_pressure(p,pressure)));
         state.pressure_floor_hits += at_floor?1:0;
     }
     state.void_ratio=old->void_ratio+(1.0+old->void_ratio)*physical_deps_v;

@@ -24,7 +24,8 @@ public:
                   double m, double zeta, double eMax, double eMin,
                   double Q, double R, double nG, double rho,
                   int fixedSubsteps, double stressScale, double pMin,
-                  double tangentPressureFloor, int initialStage,
+                  double tangentPressureFloor, double residualPressure,
+                  bool geostaticAdmission, int initialStage,
                   const Vector &initialStress);
     RIVASand();
     virtual ~RIVASand();
