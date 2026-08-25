@@ -122,6 +122,21 @@ typedef struct riva_parameters_t {
      *   progressively shuts further contraction down (the high-N brake).
      * Both default 0 = off (bit-exact even under v11). */
     double v11_rdr, v11_eta_ir;
+    /* V12: wholesale replacement of the amplitude overlay on D_ir. The
+     * frozen dilatancy core ALREADY carries the CycLiq structure - the
+     * (rd - r):n projection (distance = sqrt(2/3) md - alpha:n), fabric
+     * amplification, the C_D contraction gate, and an eps_v_ir decay. The
+     * amplitude machinery is only a multiplicative overlay
+     * (riva_irreversible_factor). Under v12 that overlay becomes a pure
+     * state-coupled chain: state_contraction * v12_dir_scale * exp(chi)
+     * with chi = min(1, v12_chi * eps_v_re/|eps_v_ir|) (CycLiqCPSP's
+     * reversible/irreversible exchange coupling), plus the shared A4 knobs
+     * (v11_eta_ir saturation, v11_rdr gammamonos). NO amplitude factor, NO
+     * bias-contraction boost: amplitude-gradedness and K_alpha come from
+     * the projection geometry itself. Pair with -v11 for the hardening
+     * side. Default off = frozen bit-for-bit. */
+    int32_t v12_enabled;
+    double v12_dir_scale, v12_chi;
     double bias_hardening_intercept, bias_intercept_exponent;
     double bias_crossing_decay, bias_hardening_scale, bias_margin_exponent;
     double bias_amplitude_ratio, bias_pressure_exponent;
@@ -346,6 +361,7 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.l3_ep_ref=0.0; p.l3_boost_floor=0.0; p.l3_cut_floor=0.0;
     p.v11_enabled=0; p.v11_k=2.0; p.v11_eta_floor=0.35;
     p.v11_dir_floor=1.0; p.v11_rdr=0.0; p.v11_eta_ir=0.0;
+    p.v12_enabled=0; p.v12_dir_scale=1.0; p.v12_chi=0.0;
     p.bias_hardening_intercept=50.0;
     p.bias_intercept_exponent=2.3; p.bias_crossing_decay=3.0;
     p.bias_hardening_scale=335.0; p.bias_margin_exponent=1.5;
@@ -830,6 +846,24 @@ RIVA_HD static inline void riva_dilatancy(const riva_parameters_t *p,
 RIVA_HD static inline double riva_irreversible_factor(const riva_parameters_t *p,
     const riva_state_t *s)
 {
+    if (p->v12_enabled) {
+        /* pure state-coupled chain - no amplitude factor, no bias boost */
+        double factor=s->state_contraction_factor*p->v12_dir_scale;
+        if (p->v12_chi>0.0 && s->eps_v_irreversible<-1.0e-12) {
+            const double chi=riva_min(1.0,
+                p->v12_chi*riva_max(s->eps_v_reversible,0.0)/
+                fabs(s->eps_v_irreversible));
+            factor *= exp(chi);
+        }
+        if (p->v11_rdr>0.0) {
+            const double w=p->v11_rdr/
+                (p->v11_rdr+riva_max(s->ep_eq_since_reversal,0.0));
+            factor *= w*w;
+        }
+        if (p->v11_eta_ir>0.0)
+            factor *= exp(-p->v11_eta_ir*fabs(s->eps_v_irreversible));
+        return factor;
+    }
     double amp=s->amplitude_factor;
     if (p->v11_enabled && amp<p->v11_dir_floor) amp=p->v11_dir_floor;
     double factor=amp*s->state_contraction_factor;
