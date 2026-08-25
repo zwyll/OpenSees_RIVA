@@ -91,10 +91,10 @@ typedef struct riva_parameters_t {
     double bias_reversible_volume_bias_exponent;
     double bias_reversible_volume_pressure_exponent;
     double bias_reversible_volume_buildup_reversals;
-    /* V9 PROPORTIONAL amplitude consistency (breaks V8 bit-lock — oracle
+    /* V9 PROPORTIONAL amplitude consistency (breaks V8 bit-lock ??oracle
        re-frozen): the reversible-volume response scales LINEARLY with the
        plastic multiplier of the last completed half-cycle,
-       min(1, ep_half_last/ep_cal) — PM4Sand/SANISAND-style: elastic or
+       min(1, ep_half_last/ep_cal) ??PM4Sand/SANISAND-style: elastic or
        weakly-plastic cycles drive proportionally little volume. ep_cal sits
        below the normal calibrated half-cycles (1.6e-3..6.7e-3), so only
        weak-plasticity half-cycles are rescaled. */
@@ -497,6 +497,15 @@ RIVA_HD static inline void riva_cyclic_flow(const riva_parameters_t *p,
         s->amplitude_reversals<p->cyclic_flow_minimum_reversals) {
         *shear_factor=1.0; *hardening_factor=1.0; return;
     }
+    /* NOTE (V9.2 attempts, 2026-08-25): scaling this cut by the half-cycle
+       plastic activity fixes the moderate-amplitude damping hole (xi 0.5%
+       -> 11.7% at gamma = 0.1%) and the small-strain over-softness
+       (G_sec/G_el 0.14 -> 0.4), BUT regresses either the stress-controlled
+       cyclic-strength curve (ep_ref = 1.2e-3: CSR 0.30 stops triggering) or
+       the biased ratcheting direction (ep_ref = 3e-4: 3-9% UPSLOPE creep at
+       alpha >= 0.25). The cut is load-bearing for the calibrated response;
+       recalibrating it needs lab anchors (G/gamma + damping + K_alpha
+       data) — model-owner territory. Kept frozen. */
     const double ratio=riva_clip(pressure/riva_max(s->pressure_anchor,p->p_min),0.0,1.0);
     const double activity=pow(ratio,p->cyclic_flow_pressure_exponent);
     *shear_factor=1.0-p->cyclic_shear_modulus_reduction*activity;
@@ -874,7 +883,7 @@ RIVA_HD static inline double riva_bias_reversible_volume_target(
     const double bias=riva_projected_bias(s);
     if (bias<=1.0e-14) return 0.0;
     /* Plastic-activity gate (V9): the response follows the plastic
-       multiplier of the last completed half-cycle, PM4Sand/SANISAND-style —
+       multiplier of the last completed half-cycle, PM4Sand/SANISAND-style ??
        elastic/micro cycles drive nothing, structurally, with no dependence
        on the current pressure (no p-collapse feedback loop). ep_ref sits
        below the golden floor (3.4e-5 in cyclic_bias0375_dense), so every
