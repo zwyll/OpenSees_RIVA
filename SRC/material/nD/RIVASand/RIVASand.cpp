@@ -18,7 +18,7 @@
 
 namespace {
 
-const int RIVASerializedSize = 131;
+const int RIVASerializedSize = 134;
 
 bool finiteVector(const Vector &value)
 {
@@ -37,7 +37,8 @@ OPS_RIVASandMaterial(void)
         opserr << "Want: nDMaterial RIVASand tag Dr M kd h m zeta "
                << "eMax eMin Q R nG <-rho value> <-nSub value> "
                << "<-stressScale value> <-pMin value> "
-               << "<-tangentPMin value> <-stage 0|1> "
+               << "<-tangentPMin value> <-geostaticAdmission> "
+               << "<-stage 0|1> "
                << "<-initialStress sxx syy szz sxy syz sxz>" << endln;
         return 0;
     }
@@ -63,6 +64,7 @@ OPS_RIVASandMaterial(void)
     double tangentPressureFloor = -1.0;
     int fixedSubsteps = 1;
     int stage = 0;
+    bool geostaticAdmission = false;
     bool stageSpecified = false;
     bool initialStressSpecified = false;
     Vector initialStress(6);
@@ -110,6 +112,8 @@ OPS_RIVASandMaterial(void)
                        << "; value must be positive" << endln;
                 return 0;
             }
+        } else if (std::strcmp(option, "-geostaticAdmission") == 0) {
+            geostaticAdmission = true;
         } else if (std::strcmp(option, "-stage") == 0) {
             count = 1;
             if (OPS_GetIntInput(&count, &stage) < 0) {
@@ -146,8 +150,8 @@ OPS_RIVASandMaterial(void)
     RIVASand *material = new RIVASand(
         tag, values[0], values[1], values[2], values[3], values[4],
         values[5], values[6], values[7], values[8], values[9], values[10],
-        rho, fixedSubsteps, stressScale, pMin, tangentPressureFloor, stage,
-        initialStress);
+        rho, fixedSubsteps, stressScale, pMin, tangentPressureFloor,
+        geostaticAdmission, stage, initialStress);
     if (material == 0 || !material->isValid()) {
         opserr << "WARNING invalid RIVASand material with tag "
                << tag << endln;
@@ -161,12 +165,14 @@ RIVASand::RIVASand(
     int tag, double Dr, double M, double kd, double h, double m,
     double zeta, double eMax, double eMin, double Q, double R, double nG,
     double rho, int fixedSubsteps, double stressScale, double pMin,
-    double tangentPressureFloor, int initialStage, const Vector &initialStress)
+    double tangentPressureFloor, bool geostaticAdmission, int initialStage,
+    const Vector &initialStress)
     : NDMaterial(tag, ND_TAG_RIVASand),
       mDr(Dr), mRho(rho), mStressScale(stressScale),
       mTangentPressureFloor(0.0),
       mFixedSubsteps(fixedSubsteps), mStage(initialStage),
-      mInitialStage(initialStage), mValid(true),
+      mInitialStage(initialStage),
+      mGeostaticAdmission(geostaticAdmission), mValid(true),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
       mInitialTangent(6, 6), mStateOutput(RIVA_STATE_VALUE_COUNT),
@@ -203,7 +209,7 @@ RIVASand::RIVASand()
     : NDMaterial(0, ND_TAG_RIVASand),
       mDr(0.0), mRho(0.0), mStressScale(1.0),
       mTangentPressureFloor(0.0), mFixedSubsteps(1),
-      mStage(0), mInitialStage(0), mValid(false),
+      mStage(0), mInitialStage(0), mGeostaticAdmission(false), mValid(false),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
       mInitialTangent(6, 6), mStateOutput(RIVA_STATE_VALUE_COUNT),
@@ -264,7 +270,8 @@ int
 RIVASand::activateFromCommittedStress(void)
 {
     const riva_tensor_t stress = stressToTensor(mCommittedStress);
-    if (!(riva_pressure(stress) > 0.0)) {
+    const double pressure=riva_pressure(stress);
+    if (!(pressure>0.0)) {
         opserr << "RIVASand tag " << this->getTag()
                << " cannot enter stage 1 without compressive committed "
                << "effective stress" << endln;
@@ -273,6 +280,13 @@ RIVASand::activateFromCommittedStress(void)
     riva_state_t state = {};
     if (!riva_initialize_material(&mParameters, &mMaterial, stress,
                                  initialVoidRatio(), &state)) return -1;
+    if (mGeostaticAdmission &&
+        !riva_admit_geostatic_state(&mParameters,&mMaterial,&state)) {
+        opserr << "RIVASand tag " << this->getTag()
+               << " cannot use geostatic admission: committed physical p' "
+               << "must exceed pMin=" << mParameters.p_min << endln;
+        return -1;
+    }
     riva_tensor_t reference = stress;
     reference.xy = reference.yz = reference.xz = 0.0;
     if (!riva_begin_dynamic_phase(&mParameters, reference, &state)) return -1;
@@ -550,6 +564,9 @@ RIVASand::sendSelf(int commitTag, Channel &theChannel)
     data(128) = mCommittedState.initialized;
     data(129) = mParameters.p_min;
     data(130) = mTangentPressureFloor;
+    data(131) = mCommittedState.geostatic_admission_radius;
+    data(132) = mCommittedState.geostatic_admitted;
+    data(133) = mGeostaticAdmission ? 1.0 : 0.0;
 
     if (theChannel.sendVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASand::sendSelf failed for tag "
@@ -627,6 +644,7 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
     setReferenceParameters();
     mParameters.p_min = data(129);
     mTangentPressureFloor = riva_max(data(130), mParameters.p_min);
+    mGeostaticAdmission = std::llround(data(133)) != 0;
     setMaterialParameters(data(13), data(14), data(15), data(16), data(17),
                           data(18), data(19), data(20), data(21), data(22));
     for (int i = 0; i < 6; ++i) mCommittedStrain(i) = data(23+i);
@@ -636,6 +654,9 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
         stateValues[i] = data(35+i);
     if (restoreState(stateValues, (int)std::llround(data(128)),
                      mCommittedState) != 0) return -1;
+    mCommittedState.geostatic_admission_radius = data(131);
+    mCommittedState.geostatic_admitted =
+        (int32_t)std::llround(data(132));
 
     mValid = mStressScale > 0.0 && mRho >= 0.0 && mFixedSubsteps >= 1 &&
         (mStage == 0 || mStage == 1) && mDr >= 0.0 && mDr <= 1.0 &&
@@ -686,6 +707,10 @@ RIVASand::getScalarResponse(int responseID)
         mScalarOutput(0) = mTangentPressureFloor;
     } else if (responseID == 10) {
         mScalarOutput(0) = (double)mStage;
+    } else if (responseID == 11) {
+        mScalarOutput(0) = (double)mTrialState.geostatic_admitted;
+    } else if (responseID == 12) {
+        mScalarOutput(0) = mTrialState.geostatic_admission_radius;
     }
     return mScalarOutput;
 }
@@ -716,6 +741,10 @@ RIVASand::setResponse(const char **argv, int argc, OPS_Stream &output)
         return new MaterialResponse(this, 9, getScalarResponse(9));
     if (std::strcmp(argv[0], "stage") == 0)
         return new MaterialResponse(this, 10, getScalarResponse(10));
+    if (std::strcmp(argv[0], "geostaticAdmitted") == 0)
+        return new MaterialResponse(this, 11, getScalarResponse(11));
+    if (std::strcmp(argv[0], "geostaticAdmissionRadius") == 0)
+        return new MaterialResponse(this, 12, getScalarResponse(12));
     return NDMaterial::setResponse(argv, argc, output);
 }
 
@@ -725,7 +754,7 @@ RIVASand::getResponse(int responseID, Information &materialInfo)
     if (responseID == 1) return materialInfo.setVector(getStress());
     if (responseID == 2) return materialInfo.setVector(getStrain());
     if (responseID == 3) return materialInfo.setVector(getStateVector());
-    if (responseID >= 4 && responseID <= 10)
+    if (responseID >= 4 && responseID <= 12)
         return materialInfo.setVector(getScalarResponse(responseID));
     return NDMaterial::getResponse(responseID, materialInfo);
 }
@@ -785,5 +814,6 @@ RIVASand::Print(OPS_Stream &output, int flag)
            << " stressScale=" << mStressScale
            << " pMin=" << mParameters.p_min
            << " tangentPMin=" << mTangentPressureFloor
+           << " geostaticAdmission=" << (mGeostaticAdmission ? 1 : 0)
            << " parameterSHA=" << RIVA_PARAMETER_SHA256 << endln;
 }

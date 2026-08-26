@@ -16,7 +16,8 @@ details.
 ```tcl
 nDMaterial RIVASand tag Dr M kd h m zeta eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
-    <-pMin value> <-tangentPMin value> <-stage 0|1> \
+    <-pMin value> <-tangentPMin value> <-geostaticAdmission> \
+    <-stage 0|1> \
     <-initialStress sxx syy szz sxy syz sxz>
 ```
 
@@ -138,6 +139,21 @@ own committed effective stress. The committed shear stress becomes the
 initial static shear bias. Do not activate stage 1 before a compressive
 effective-stress state has been established.
 
+If a successfully converged gravity solution contains compressive material
+points whose stress-ratio radius lies outside the current bounding cone, the
+optional `-geostaticAdmission` flag may be supplied when the material is
+created. At stage activation, the committed effective stress is retained
+exactly. Only an actually over-bound point receives a temporary hard radial
+constraint: its radius may decrease but cannot increase. The constraint is
+removed after the point re-enters the bounding cone. An already admissible
+point follows the ordinary RIVA-Sand update exactly.
+
+This option does not create residual confinement, translate the cone apex, or
+admit a tensile physical mean effective stress. The committed physical
+pressure must exceed the configured `pMin` value. Gravity and dynamics should
+remain in the same OpenSees domain so that activation uses the stress actually
+solved during gravity rather than a reconstructed analytical stress field.
+
 ## Optional arguments
 
 | Option | Default | Meaning and use |
@@ -147,6 +163,7 @@ effective-stress state has been established.
 | `-stressScale value` | 1 | Number of analysis stress units per kPa; use 1 for kPa and 1000 for Pa |
 | `-pMin value` | 0.001 kPa multiplied by `stressScale` | Constitutive minimum mean effective pressure; changing it changes the material response and requires revalidation |
 | `-tangentPMin value` | 0.5065 kPa multiplied by `stressScale` | Minimum pressure used only for the tangent returned to OpenSees; it does not change the constitutive stress update |
+| `-geostaticAdmission` | off | Preserve an actually solved, compressive over-bound gravity stress and apply a temporary non-expansive radial constraint until it re-enters the cone; admissible states are unchanged |
 | `-stage 0|1` | 0 | Stage 0 is elastic gravity/geostatic setup; stage 1 activates RIVA-Sand cyclic behavior |
 | `-initialStress ...` | none | Direct effective-stress initialization in the order `sxx syy szz sxy syz sxz`; if supplied without `-stage`, stage 1 is selected |
 
@@ -218,6 +235,8 @@ The material accepts the following response names:
 | `compatibilityResidual` | Numerical check on volumetric state compatibility |
 | `pressureFloor` | Constitutive pressure floor in the current stress unit |
 | `tangentPressureFloor` | Tangent-only pressure floor in the current stress unit |
+| `geostaticAdmitted` | `1` while an actually over-bound geostatic point remains under the temporary non-expansive constraint; otherwise `0` |
+| `geostaticAdmissionRadius` | Current temporary normalized admission radius; zero when admission is inactive |
 | `stage` | Current material stage, 0 or 1 |
 
 For example, the response of integration point 1 in an element can be queried

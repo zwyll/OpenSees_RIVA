@@ -13,7 +13,8 @@ and channel serialization.
 ```tcl
 nDMaterial RIVASand tag Dr M kd h m zeta eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
-    <-pMin value> <-tangentPMin value> <-stage 0|1> \
+    <-pMin value> <-tangentPMin value> <-geostaticAdmission> \
+    <-stage 0|1> \
     <-initialStress sxx syy szz sxy syz sxz>
 ```
 
@@ -52,6 +53,12 @@ Options:
   returned to OpenSees. It does not change the RIVA-Sand stress update. The
   default is `p_ref/200` (`0.5065 kPa` when `stressScale=1`) and is never
   allowed below `-pMin`.
+- `-geostaticAdmission`: opt-in stage-transition safeguard for a compressive
+  committed gravity stress that lies outside the current bounding cone. It
+  preserves the committed effective stress exactly, prevents further outward
+  growth of its stress-ratio radius, and disables itself after the state
+  re-enters the cone. It does not admit tensile pressure, translate the cone
+  apex, or change an already admissible state. Default off.
 - `-stage`: `0` for elastic gravity/geostatic setup and `1` for RIVA-Sand
   dynamics. Default `0`.
 - `-initialStress`: direct material-point initialization in OpenSees stress
@@ -111,7 +118,7 @@ cannot prevent the constitutive state from reaching the frozen 0.001 kPa apex.
 The material accepts these response names:
 
 - `stress`, `strain`
-- `state` (the 93 flattened state values in formulation order)
+- `state` (the 93 flattened frozen-kernel state values in state-schema order)
 - `voidRatio`
 - `effectivePressureRatio` (standalone skeleton diagnostic only)
 - `reversals`
@@ -119,6 +126,8 @@ The material accepts these response names:
 - `pressureFloor` (constitutive `p_min`)
 - `tangentPressureFloor` (OpenSees tangent-only floor)
 - `stage`
+- `geostaticAdmitted` (temporary admission-active flag)
+- `geostaticAdmissionRadius` (current temporary normalized radius; zero when inactive)
 
 ## Files and verification
 
@@ -130,6 +139,12 @@ The material accepts these response names:
   OpenSees element/material interface as well as the adapter.
 - `tests/RIVASandKernelStateTest.cpp` checks reference/custom equivalence,
   active `zeta`, trial-state isolation, restart, and zero increments.
+- `tests/RIVASandGeostaticAdmissionTest.cpp` checks compressive,
+  stress-preserving over-bound admission; finite and repeated outward updates;
+  inward re-entry; restart; and exact equivalence for admissible states.
+- `tests/RIVASand_geostatic_admission.tcl` checks the public Tcl option and
+  verifies stress preservation and channel restart in an actual OpenSees brick
+  material copy.
 - `tests/RIVASandGoldenReplay.cpp` replays all five frozen 1D/3D golden paths,
   including biased, dense, four-substep, and nonproportional histories.
 - `tests/RIVASand_stage_activation.tcl` verifies that two `SSPbrickUP`
@@ -145,8 +160,11 @@ c++ -std=c++17 -O2 EXAMPLES/RIVASand/tests/RIVASandKernelStateTest.cpp \
   -o RIVASandKernelStateTest
 c++ -std=c++17 -O2 EXAMPLES/RIVASand/tests/RIVASandGoldenReplay.cpp \
   -o RIVASandGoldenReplay
+c++ -std=c++17 -O2 EXAMPLES/RIVASand/tests/RIVASandGeostaticAdmissionTest.cpp \
+  -o RIVASandGeostaticAdmissionTest
 ./RIVASandKernelStateTest
 ./RIVASandGoldenReplay
+./RIVASandGeostaticAdmissionTest
 ```
 
 The Tcl driver has also been run with a fully linked OpenSees 3.8.0 executable.

@@ -136,6 +136,11 @@ typedef struct riva_state_t {
     double bias_ratchet_strain, physical_eps_v_total;
     double bias_reversible_volume;
     riva_tensor_t last_host_deviatoric_strain_direction;
+    /* Numerical geostatic-admission state. These fields are zero on every
+     * frozen V8 path. An OpenSees stage transition may set them only when a
+     * compressive committed stress lies outside the current bounding cone. */
+    double geostatic_admission_radius;
+    int32_t geostatic_admitted;
     int32_t initialized;
 } riva_state_t;
 
@@ -314,6 +319,50 @@ RIVA_HD static inline void riva_surfaces(const riva_parameters_t *p,
     *xi=riva_relative_state(p,material,pressure,void_ratio);
     *mb=material->M*exp(p->n_b*(*xi));
     *md=material->kd*exp(-p->n_d*(*xi));
+}
+
+/* Hard radial constraint for one explicitly admitted over-bound state.
+ *
+ * While admission is active, the candidate stress-ratio radius may move
+ * inward but may never exceed the immediately preceding admitted radius.
+ * Once the candidate reaches the current bounding cone, admission is cleared
+ * permanently and the ordinary frozen hard projection applies thereafter.
+ * The inactive branch is the original V8 projection operation order. */
+RIVA_HD static inline riva_tensor_t riva_geostatic_admission_cap(
+    double bound,const riva_state_t *prior,riva_tensor_t candidate,
+    int32_t *admitted,double *admission_radius)
+{
+    double norm=riva_norm(candidate);
+    if (!prior || !prior->geostatic_admitted) {
+        if (norm>bound) candidate=riva_scale(candidate,bound/norm);
+        if (admitted) *admitted=0;
+        if (admission_radius) *admission_radius=0.0;
+        return candidate;
+    }
+
+    double prior_radius=riva_norm(prior->alpha);
+    if (prior->geostatic_admission_radius>0.0)
+        prior_radius=riva_min(prior_radius,prior->geostatic_admission_radius);
+
+    if (!(prior_radius>bound)) {
+        if (norm>bound) candidate=riva_scale(candidate,bound/norm);
+        if (admitted) *admitted=0;
+        if (admission_radius) *admission_radius=0.0;
+        return candidate;
+    }
+
+    if (norm>prior_radius) {
+        candidate=riva_scale(candidate,prior_radius/norm);
+        norm=prior_radius;
+    }
+    if (norm<=bound) {
+        if (admitted) *admitted=0;
+        if (admission_radius) *admission_radius=0.0;
+    } else {
+        if (admitted) *admitted=1;
+        if (admission_radius) *admission_radius=norm;
+    }
+    return candidate;
 }
 
 RIVA_HD static inline void riva_moduli(const riva_parameters_t *p,
@@ -542,6 +591,35 @@ RIVA_HD static inline int riva_initialize_material(const riva_parameters_t *p,
     return 1;
 }
 
+/* Admit only a compressive, already initialized geostatic state. The
+ * effective stress is never projected or otherwise changed. Admissible
+ * states remain on the frozen path; only an actually over-bound state is
+ * recentered and marked for the temporary non-expansive radial constraint. */
+RIVA_HD static inline int riva_admit_geostatic_state(
+    const riva_parameters_t *p,const riva_material_parameters_t *material,
+    riva_state_t *state)
+{
+    if (!state || !state->initialized ||
+        !riva_material_parameters_valid(p,material)) return 0;
+    const double pressure=riva_pressure(state->stress);
+    if (!(pressure>p->p_min) || !isfinite(pressure)) return 0;
+
+    double mb,md,xi;
+    riva_surfaces(p,material,pressure,state->void_ratio,&mb,&md,&xi);
+    (void)md; (void)xi;
+    const double bound=sqrt(2.0/3.0)*mb;
+    const double radius=riva_norm(state->alpha);
+    state->geostatic_admitted=0;
+    state->geostatic_admission_radius=0.0;
+    if (radius>bound) {
+        state->alpha0=state->alpha;
+        state->alpha01=state->alpha;
+        state->geostatic_admitted=1;
+        state->geostatic_admission_radius=radius;
+    }
+    return 1;
+}
+
 RIVA_HD static inline int riva_initialize(const riva_parameters_t *p,
     riva_tensor_t stress,double void_ratio,riva_state_t *state)
 {
@@ -703,7 +781,12 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
     riva_tensor_t alpha=riva_scale(s,1.0/pressure);
     const double alpha_limit=sqrt(2.0/3.0)*mb;
     const double alpha_norm=riva_norm(alpha);
-    if (alpha_norm>alpha_limit) {
+    if (old->geostatic_admitted) {
+        alpha=riva_geostatic_admission_cap(
+            alpha_limit,old,alpha,&state.geostatic_admitted,
+            &state.geostatic_admission_radius);
+        s=riva_scale(alpha,pressure); stress=riva_sub(s,riva_iso(pressure));
+    } else if (alpha_norm>alpha_limit) {
         alpha=riva_scale(alpha,alpha_limit/alpha_norm);
         s=riva_scale(alpha,pressure); stress=riva_sub(s,riva_iso(pressure));
     }
@@ -863,12 +946,22 @@ RIVA_HD static inline riva_state_t riva_without_reversible_bias(
     mechanical.eps_v_total=state->physical_eps_v_total;
     mechanical.eps_v_confining=mechanical.eps_v_total-
         mechanical.eps_v_irreversible-mechanical.eps_v_reversible;
-    const riva_tensor_t dev=riva_dev(state->stress);
+    riva_tensor_t dev=riva_dev(state->stress);
     int at_floor=0;
     const double pressure=riva_pressure_from_confining(
         p,material,mechanical.eps_v_confining,
         mechanical.pressure_anchor,&at_floor); (void)at_floor;
     mechanical.alpha=riva_scale(dev,1.0/pressure);
+    if (state->geostatic_admitted) {
+        double mb,md,xi;
+        riva_surfaces(p,material,pressure,mechanical.void_ratio,&mb,&md,&xi);
+        (void)md; (void)xi;
+        mechanical.alpha=riva_geostatic_admission_cap(
+            sqrt(2.0/3.0)*mb,state,mechanical.alpha,
+            &mechanical.geostatic_admitted,
+            &mechanical.geostatic_admission_radius);
+        dev=riva_scale(mechanical.alpha,pressure);
+    }
     mechanical.stress=riva_sub(dev,riva_iso(pressure));
     return mechanical;
 }
@@ -898,6 +991,7 @@ RIVA_HD static inline riva_state_t riva_forward_euler(
     }
     const double target=riva_bias_reversible_volume_target(p,&provisional);
     riva_state_t state=provisional;
+    const riva_state_t compatibility_prior=state;
     state.bias_ratchet_strain=old->bias_ratchet_strain+ratchet;
     state.physical_eps_v_total=old->physical_eps_v_total+physical_deps_v;
     state.bias_reversible_volume=target;
@@ -907,11 +1001,21 @@ RIVA_HD static inline riva_state_t riva_forward_euler(
     state.eps_v_confining=state.eps_v_total-state.eps_v_irreversible-
         state.eps_v_reversible;
     if (changed) {
-        const riva_tensor_t dev=riva_dev(state.stress); int at_floor=0;
+        riva_tensor_t dev=riva_dev(state.stress); int at_floor=0;
         const double pressure=riva_pressure_from_confining(
             p,material,state.eps_v_confining,
             state.pressure_anchor,&at_floor);
         state.alpha=riva_scale(dev,1.0/pressure);
+        if (compatibility_prior.geostatic_admitted) {
+            double mb,md,xi;
+            riva_surfaces(p,material,pressure,state.void_ratio,&mb,&md,&xi);
+            (void)md; (void)xi;
+            state.alpha=riva_geostatic_admission_cap(
+                sqrt(2.0/3.0)*mb,&compatibility_prior,state.alpha,
+                &state.geostatic_admitted,
+                &state.geostatic_admission_radius);
+            dev=riva_scale(state.alpha,pressure);
+        }
         state.stress=riva_sub(dev,riva_iso(pressure));
         state.pressure_floor_hits += at_floor?1:0;
     }
@@ -973,6 +1077,9 @@ RIVA_HD static inline int riva_update_material(const riva_parameters_t *p,
         current.last_host_deviatoric_strain_direction=direction;
     if (!riva_finite_tensor(current.stress) ||
         !isfinite(current.lambda_total) || !isfinite(current.void_ratio)) return 0;
+    if (current.geostatic_admitted &&
+        (!isfinite(current.geostatic_admission_radius) ||
+         !(current.geostatic_admission_radius>0.0))) return 0;
     *state=current; if (stress_new) *stress_new=current.stress;
     if (info) { info->accepted_substeps=fixed_substeps;
                 info->reversal_registered=reversal; }
