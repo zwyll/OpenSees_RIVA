@@ -85,6 +85,7 @@ extern  void *OPS_ManzariDafaliasMaterialRO(void);
 extern  void *OPS_PM4SandMaterial(void);
 extern  void *OPS_PM4SiltMaterial(void);
 extern  void *OPS_LinearElasticGGmaxMaterial(void);
+extern  void *OPS_RIVASandMaterial(void);
 extern  void *OPS_J2CyclicBoundingSurfaceMaterial(void);
 extern  void *OPS_CycLiqCPMaterial(void);
 extern  void *OPS_CycLiqCPSPMaterial(void);
@@ -523,6 +524,14 @@ TclModelBuilderNDMaterialCommand (ClientData clientData, Tcl_Interp *interp, int
 		return TCL_ERROR;
     }
 
+    else if ((strcmp(argv[1], "RIVASand") == 0)) {
+
+	void *theMat = OPS_RIVASandMaterial();
+	if (theMat != 0)
+		theMaterial = (NDMaterial *)theMat;
+	else
+		return TCL_ERROR;
+    }
 
     else if ((strcmp(argv[1],"ContactMaterial2D") == 0)){
 

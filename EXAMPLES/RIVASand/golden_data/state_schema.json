@@ -1,0 +1,374 @@
+{
+ "fields": [
+  {
+   "components": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+   ],
+   "description": "effective Cauchy stress tensor",
+   "field_index": 0,
+   "kind": "symmetric_tensor",
+   "name": "stress"
+  },
+  {
+   "components": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+   ],
+   "description": "deviatoric stress-ratio tensor s/p",
+   "field_index": 1,
+   "kind": "symmetric_tensor",
+   "name": "alpha"
+  },
+  {
+   "components": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+   ],
+   "description": "current projection origin",
+   "field_index": 2,
+   "kind": "symmetric_tensor",
+   "name": "alpha0"
+  },
+  {
+   "components": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+   ],
+   "description": "previous projection origin used by overshoot",
+   "field_index": 3,
+   "kind": "symmetric_tensor",
+   "name": "alpha01"
+  },
+  {
+   "components": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+   ],
+   "description": "mapped bounding-surface normal",
+   "field_index": 4,
+   "kind": "symmetric_tensor",
+   "name": "n"
+  },
+  {
+   "components": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+   ],
+   "description": "dilatancy fabric tensor",
+   "field_index": 5,
+   "kind": "symmetric_tensor",
+   "name": "fabric"
+  },
+  {
+   "components": [],
+   "description": "total dilatancy D_ir + D_re",
+   "field_index": 6,
+   "kind": "real",
+   "name": "D"
+  },
+  {
+   "components": [],
+   "description": "bounding-surface image-point distance",
+   "field_index": 7,
+   "kind": "real",
+   "name": "beta"
+  },
+  {
+   "components": [],
+   "description": "cumulative plastic multiplier",
+   "field_index": 8,
+   "kind": "real",
+   "name": "lambda_total"
+  },
+  {
+   "components": [],
+   "description": "plastic multiplier accumulated since reversal",
+   "field_index": 9,
+   "kind": "real",
+   "name": "ep_eq_since_reversal"
+  },
+  {
+   "components": [],
+   "description": "physical void ratio",
+   "field_index": 10,
+   "kind": "real",
+   "name": "void_ratio"
+  },
+  {
+   "components": [],
+   "description": "bounding-surface reversal count",
+   "field_index": 11,
+   "kind": "integer",
+   "name": "reversals"
+  },
+  {
+   "components": [],
+   "description": "pressure-floor diagnostic counter",
+   "field_index": 12,
+   "kind": "integer",
+   "name": "pressure_floor_hits"
+  },
+  {
+   "components": [],
+   "description": "plastic-denominator floor counter",
+   "field_index": 13,
+   "kind": "integer",
+   "name": "denominator_floor_hits"
+  },
+  {
+   "components": [],
+   "description": "image-point quadratic fallback counter",
+   "field_index": 14,
+   "kind": "integer",
+   "name": "beta_fallbacks"
+  },
+  {
+   "components": [],
+   "description": "compatible total volume including reversible bias volume",
+   "field_index": 15,
+   "kind": "real",
+   "name": "eps_v_total"
+  },
+  {
+   "components": [],
+   "description": "elastic/confining compatibility coordinate",
+   "field_index": 16,
+   "kind": "real",
+   "name": "eps_v_confining"
+  },
+  {
+   "components": [],
+   "description": "irreversible volumetric compatibility strain",
+   "field_index": 17,
+   "kind": "real",
+   "name": "eps_v_irreversible"
+  },
+  {
+   "components": [],
+   "description": "reversible volumetric compatibility strain",
+   "field_index": 18,
+   "kind": "real",
+   "name": "eps_v_reversible"
+  },
+  {
+   "components": [],
+   "description": "initial effective mean pressure",
+   "field_index": 19,
+   "kind": "real",
+   "name": "pressure_anchor"
+  },
+  {
+   "components": [],
+   "description": "irreversible dilatancy",
+   "field_index": 20,
+   "kind": "real",
+   "name": "D_ir"
+  },
+  {
+   "components": [],
+   "description": "reversible dilatancy",
+   "field_index": 21,
+   "kind": "real",
+   "name": "D_re"
+  },
+  {
+   "components": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+   ],
+   "description": "deviatoric stress at the preceding reversal",
+   "field_index": 22,
+   "kind": "symmetric_tensor",
+   "name": "last_reversal_deviator"
+  },
+  {
+   "components": [],
+   "description": "latest normalized cyclic stress excursion",
+   "field_index": 23,
+   "kind": "real",
+   "name": "cyclic_amplitude"
+  },
+  {
+   "components": [],
+   "description": "amplitude-dependent contraction multiplier",
+   "field_index": 24,
+   "kind": "real",
+   "name": "amplitude_factor"
+  },
+  {
+   "components": [],
+   "description": "accepted cyclic excursion count",
+   "field_index": 25,
+   "kind": "integer",
+   "name": "amplitude_reversals"
+  },
+  {
+   "components": [],
+   "description": "relative state frozen at initialization",
+   "field_index": 26,
+   "kind": "real",
+   "name": "initial_relative_state"
+  },
+  {
+   "components": [],
+   "description": "density contraction factor frozen initially",
+   "field_index": 27,
+   "kind": "real",
+   "name": "state_contraction_factor"
+  },
+  {
+   "components": [],
+   "description": "density-adjusted low-amplitude knee",
+   "field_index": 28,
+   "kind": "real",
+   "name": "effective_knee_ratio"
+  },
+  {
+   "components": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+   ],
+   "description": "deviatoric stress at initialization",
+   "field_index": 29,
+   "kind": "symmetric_tensor",
+   "name": "geostatic_deviator"
+  },
+  {
+   "components": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+   ],
+   "description": "normalized static-bias tensor",
+   "field_index": 30,
+   "kind": "symmetric_tensor",
+   "name": "static_bias_tensor"
+  },
+  {
+   "components": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+   ],
+   "description": "unit direction of the latest stress excursion",
+   "field_index": 31,
+   "kind": "symmetric_tensor",
+   "name": "cyclic_direction"
+  },
+  {
+   "components": [],
+   "description": "norm of the normalized static-bias tensor",
+   "field_index": 32,
+   "kind": "real",
+   "name": "static_bias_index"
+  },
+  {
+   "components": [],
+   "description": "dynamic/cyclic phase activation flag",
+   "field_index": 33,
+   "kind": "logical",
+   "name": "cyclic_phase_active"
+  },
+  {
+   "components": [],
+   "description": "accumulated bias-aligned shear ratchet",
+   "field_index": 34,
+   "kind": "real",
+   "name": "bias_ratchet_strain"
+  },
+  {
+   "components": [],
+   "description": "physical total volume excluding bias pressure wave",
+   "field_index": 35,
+   "kind": "real",
+   "name": "physical_eps_v_total"
+  },
+  {
+   "components": [],
+   "description": "current reversible bias pressure-wave volume",
+   "field_index": 36,
+   "kind": "real",
+   "name": "bias_reversible_volume"
+  },
+  {
+   "components": [
+    "xx",
+    "yy",
+    "zz",
+    "xy",
+    "yz",
+    "xz"
+   ],
+   "description": "host-step reversal direction memory",
+   "field_index": 37,
+   "kind": "symmetric_tensor",
+   "name": "last_host_deviatoric_strain_direction"
+  },
+  {
+   "components": [],
+   "description": "plastic multiplier accumulated over the last completed half-cycle (V9 amplitude-consistency gate for bias_reversible_volume)",
+   "field_index": 38,
+   "kind": "real",
+   "name": "ep_half_last"
+  },
+  {
+   "name": "eta_m",
+   "components": null
+  },
+  {
+   "name": "damage_w",
+   "components": null
+  }
+ ],
+ "flattened_component_count": 93,
+ "model": "RIVA-Sand standalone Hercules reference",
+ "state_field_count": 38,
+ "tensor_component_order": [
+  "xx",
+  "yy",
+  "zz",
+  "xy",
+  "yz",
+  "xz"
+ ],
+ "tensor_double_contraction": "A:B = Axx*Bxx + Ayy*Byy + Azz*Bzz + 2*(Axy*Bxy + Ayz*Byz + Axz*Bxz)"
+}

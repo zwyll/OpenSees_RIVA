@@ -24,8 +24,11 @@ class OpenSeesDependencies(ConanFile):
         cmake_layout(self)
 
     def requirements(self):
-        self.requires("hdf5/1.14.6")
-        self.requires("tcl/8.6.11")
+        self.requires("hdf5/1.14.0")
+        # tcl removed — local build uses Magicsplat Tcl 8.6.17 from
+        # C:\Users\User\AppData\Local\Apps\Tcl86 (Conan tcl/8.6.x recipe breaks
+        # under MSVC 19.4x: rules.vc VCVERSION auto-detect fails). Local-only
+        # build tweak; do not upstream.
         self.requires("zlib/1.3.1")
         self.requires("eigen/3.4.0")
         # Note: If you rely on 'mkl-static', you must add self.requires("mkl-static/...") here.
