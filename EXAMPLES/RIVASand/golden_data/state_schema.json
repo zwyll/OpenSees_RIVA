@@ -353,6 +353,10 @@
   {
    "name": "eta_m",
    "components": null
+  },
+  {
+   "name": "damage_w",
+   "components": null
   }
  ],
  "flattened_component_count": 93,

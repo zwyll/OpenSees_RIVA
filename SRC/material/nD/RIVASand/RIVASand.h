@@ -74,6 +74,8 @@ public:
     void setV11Dir(double rdr, double etaIr);
     void setV12(bool enabled, double dirScale, double chi);
     void setV13(bool enabled, double hScale, double etamFloor);
+    void setV14(bool enabled, double dScale, double aExp, double mExp,
+                double pExp, double wRef);
     void setBiasContraction(double scale, double expo);
     void setBetaReserve(double value);
     void setPMax(double value);

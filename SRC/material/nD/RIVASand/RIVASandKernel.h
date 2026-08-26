@@ -44,7 +44,7 @@ typedef struct riva_material_parameters_t {
 
 #define RIVA_PARAMETER_COUNT 118
 #define RIVA_CONSTITUTIVE_PARAMETER_COUNT 114
-#define RIVA_STATE_VALUE_COUNT 95
+#define RIVA_STATE_VALUE_COUNT 96
 #define RIVA_PARAMETER_SHA256 \
     "9585f0c155c9444885c5115e7753a1a5d97c783e2c685938a49a65435c9e8f83"
 
@@ -152,6 +152,18 @@ typedef struct riva_parameters_t {
      * -v12 (D_ir side). Default off = frozen bit-for-bit. */
     int32_t v13_enabled;
     double v13_h_scale, v13_etam_floor;
+    /* V14: the cumulative N-device (PM4Sand z_cum tradition), replacing the
+     * instantaneous amplitude knee. Per registered half-cycle the damage
+     * accumulator grows dW = min(A/Aref, 4)^m_exp (A = cyclic_amplitude,
+     * Aref = the frozen cyclic_amplitude_reference), and D_ir efficiency is
+     * d_scale * min(A/Aref,4)^a_exp * (W/w_ref)^p_exp (capped at the frozen
+     * machinery's own maximum 12). Triggering then solves
+     * N ~ A^-(a+m*p)/(1+p): steep CRR-N slope from the exponent split, with
+     * SMOOTH amplitude response (no threshold -> no field knife-edge) and
+     * a slow-burning-fuse start. Pair with -v13 and -noCyclicFlow (the H2
+     * family minus the knee). Default off = frozen bit-for-bit. */
+    int32_t v14_enabled;
+    double v14_d_scale, v14_a_exp, v14_m_exp, v14_p_exp, v14_w_ref;
     double bias_hardening_intercept, bias_intercept_exponent;
     double bias_crossing_decay, bias_hardening_scale, bias_margin_exponent;
     double bias_amplitude_ratio, bias_pressure_exponent;
@@ -280,6 +292,10 @@ typedef struct riva_state_t {
     /* plastic multiplier accumulated over the last COMPLETED half-cycle
        (captured from ep_eq_since_reversal at reversal registration) */
     double ep_half_last;
+    /* V14: cumulative cyclic damage W (amplitude-weighted half-cycle
+     * count). Grows only at registered reversals; consumed only when
+     * v14_enabled - the frozen path never reads it. */
+    double damage_w;
     /* V11 research: memory of the largest normalized stress ratio
      * eta = sqrt(3/2)|alpha| ever committed (CycLiqCPSP's eta_m). Drives
      * the memory-surface hardening factor that replaces the bias boost
@@ -378,6 +394,8 @@ RIVA_HD static inline riva_parameters_t riva_reference_parameters(double stress_
     p.v11_dir_floor=1.0; p.v11_rdr=0.0; p.v11_eta_ir=0.0;
     p.v12_enabled=0; p.v12_dir_scale=1.0; p.v12_chi=0.0;
     p.v13_enabled=0; p.v13_h_scale=1.0; p.v13_etam_floor=0.3;
+    p.v14_enabled=0; p.v14_d_scale=1.0; p.v14_a_exp=2.0;
+    p.v14_m_exp=4.0; p.v14_p_exp=1.0; p.v14_w_ref=0.3;
     p.bias_hardening_intercept=50.0;
     p.bias_intercept_exponent=2.3; p.bias_crossing_decay=3.0;
     p.bias_hardening_scale=335.0; p.bias_margin_exponent=1.5;
@@ -875,6 +893,18 @@ RIVA_HD static inline void riva_dilatancy(const riva_parameters_t *p,
 RIVA_HD static inline double riva_irreversible_factor(const riva_parameters_t *p,
     const riva_state_t *s)
 {
+    if (p->v14_enabled) {
+        /* cumulative N-device: smooth amplitude power x damage growth */
+        const double A=riva_min(riva_max(s->cyclic_amplitude,1.0e-9)/
+                                p->cyclic_amplitude_reference,4.0);
+        const double W=riva_max(s->damage_w,1.0e-9)/p->v14_w_ref;
+        double eff=p->v14_d_scale*pow(A,p->v14_a_exp)*pow(W,p->v14_p_exp);
+        eff=riva_min(eff,p->amplitude_factor_maximum);
+        double factor=s->state_contraction_factor*eff;
+        if (p->v11_eta_ir>0.0)
+            factor *= exp(-p->v11_eta_ir*fabs(s->eps_v_irreversible));
+        return factor;
+    }
     if (p->v12_enabled) {
         /* pure state-coupled chain - no amplitude factor, no bias boost */
         double factor=s->state_contraction_factor*p->v12_dir_scale;
@@ -1073,6 +1103,10 @@ RIVA_HD static inline riva_state_t riva_backbone_forward_euler(
         if (amplitude>1.0e-12) {
             state.cyclic_amplitude=amplitude;
             state.amplitude_factor=riva_amplitude_factor(p,amplitude,old->effective_knee_ratio);
+            if (p->v14_enabled)
+                state.damage_w=old->damage_w+pow(
+                    riva_min(amplitude/p->cyclic_amplitude_reference,4.0),
+                    p->v14_m_exp);
         }
         state.last_reversal_deviator=reversal_dev;
         state.amplitude_reversals=old->amplitude_reversals+1;
@@ -1413,6 +1447,7 @@ RIVA_HD static inline int riva_state_values(
     RIVA_STATE_TENSOR(state->last_host_deviatoric_strain_direction);
     values[i++]=state->ep_half_last;
     values[i++]=state->eta_m;
+    values[i++]=state->damage_w;
 #undef RIVA_STATE_TENSOR
     return i;
 }
