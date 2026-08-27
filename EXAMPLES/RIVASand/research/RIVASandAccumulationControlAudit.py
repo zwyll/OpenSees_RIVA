@@ -1,0 +1,61 @@
+"""Run the strict DSS audit on the plastic-work accumulation-control prototype."""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import asdict, fields
+from pathlib import Path
+import sys
+
+
+HERE = Path(__file__).resolve().parent
+WORKSPACE = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(WORKSPACE))
+sys.path.insert(0, str(HERE))
+
+import RIVASandBaselineAudit as baseline  # noqa: E402
+from RIVASandAccumulationControl import (  # noqa: E402
+    RIVASandAccumulationControlModel,
+    RIVASandAccumulationControlParameters,
+)
+
+
+strict = baseline.audit_module
+strict.RIVASandDBFBModel = RIVASandAccumulationControlModel
+strict.RIVASandDBFBParameters = RIVASandAccumulationControlParameters
+
+
+def parameters_from_args(
+    args: argparse.Namespace,
+) -> RIVASandAccumulationControlParameters:
+    defaults = asdict(RIVASandAccumulationControlParameters())
+    allowed = {
+        item.name for item in fields(RIVASandAccumulationControlParameters)
+    }
+    overrides = strict._parameter_overrides(args.parameter, defaults)
+    unknown = sorted(set(overrides) - allowed)
+    if unknown:
+        raise ValueError(
+            f"unknown accumulation-control parameter(s): {', '.join(unknown)}"
+        )
+    defaults.update(overrides)
+    return RIVASandAccumulationControlParameters(**defaults)
+
+
+strict.parameters_from_args = parameters_from_args
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = strict.build_parser()
+    parser.description = __doc__
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    result = strict.audit(args)
+    print(strict.json.dumps(result, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
