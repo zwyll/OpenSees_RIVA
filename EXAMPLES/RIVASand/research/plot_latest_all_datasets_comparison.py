@@ -21,8 +21,8 @@ import RIVASandBaselineAudit as audit  # noqa: E402
 
 
 RESULTS = HERE / "results"
-LATEST = RESULTS / "loose_unbiased_correction_final_full"
-OUTPUT = RESULTS / "loose_unbiased_correction_all_datasets_comparison"
+LATEST = RESULTS / "loose_biased_shear_flow_final_full"
+OUTPUT = RESULTS / "loose_biased_shear_flow_all_datasets_comparison"
 
 EXPERIMENT_COLOR = "#D55E00"
 NUMERICAL_COLOR = "#0072B2"
@@ -300,7 +300,7 @@ def write_plot_index() -> None:
         stream.write(
             "# Latest two-dataset comparison plots\n\n"
             "Numerical series use the private loose/unbiased correction successor "
-            "from `loose_unbiased_correction_final_full`. Experimental "
+            "from `loose_biased_shear_flow_final_full`. Experimental "
             "series are origin-shifted DSS records. Orange is experimental; blue "
             "is numerical.\n\n"
         )
