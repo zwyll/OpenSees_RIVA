@@ -549,6 +549,12 @@ class RIVASandPhaseTransformationModel(RIVASandModel):
             * pressure_ratio
         )
 
+    def phase_reversible_relaxation_multiplier(
+        self, state: RIVASandState
+    ) -> float:
+        """Hook for research successors; unity preserves this checkpoint."""
+        return 1.0
+
     def bias_reversible_volume_target(self, state: RIVASandState) -> float:
         """Retain the frozen wave outside the dense transformation branch."""
         target = super().bias_reversible_volume_target(state)
@@ -685,7 +691,12 @@ class RIVASandPhaseTransformationModel(RIVASandModel):
             )
             * bias_ratio**cfg.phase_reversible_relaxation_bias_exponent
         )
-        relaxation = 1.0 - np.exp(-path_increment / relaxation_strain)
+        relaxation_multiplier = max(
+            self.phase_reversible_relaxation_multiplier(state), 0.0
+        )
+        relaxation = 1.0 - np.exp(
+            -relaxation_multiplier * path_increment / relaxation_strain
+        )
         state.phase_reversible_volume = float(
             old.phase_reversible_volume
             + relaxation * (reversible_target - old.phase_reversible_volume)
