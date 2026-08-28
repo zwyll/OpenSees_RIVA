@@ -1,5 +1,9 @@
 # Loose-biased shear-flow checkpoint
 
+> **Qualification status (2026-08-27):** retained as a research checkpoint,
+> but rejected as a production replacement after the untouched 18-case gate.
+> See `LOOSE_BIASED_SHEAR_FLOW_QUALIFICATION.md`.
+
 This private research successor starts from the signed phase-transformation
 checkpoint in `RIVASandLooseUnbiasedCorrectionModel`. It is not the frozen
 production RIVA-Sand model and must not be ported to OpenSees or Hercules
