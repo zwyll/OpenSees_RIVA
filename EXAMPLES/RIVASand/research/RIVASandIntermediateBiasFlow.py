@@ -131,6 +131,7 @@ class RIVASandIntermediateBiasFlowParameters(
 class RIVASandIntermediateBiasFlowState(RIVASandMappingBackstressState):
     """Caches immutable density--bias gates at cyclic activation."""
 
+    initial_relative_density_value: float = -1.0
     intermediate_low_gate_value: float = 0.0
     intermediate_high_gate_base: float = 0.0
 
@@ -152,6 +153,10 @@ class RIVASandIntermediateBiasFlowModel(RIVASandMappingBackstressModel):
         self, parameters: RIVASandIntermediateBiasFlowParameters | None = None
     ):
         super().__init__(parameters or RIVASandIntermediateBiasFlowParameters())
+        # Parameter-only reference density is immutable for the material.
+        self._reference_relative_density_value = float(
+            super().reference_relative_density()
+        )
 
     def initialize(
         self, stress: Tensor, void_ratio: float
@@ -162,7 +167,25 @@ class RIVASandIntermediateBiasFlowModel(RIVASandMappingBackstressModel):
             value = getattr(base, item.name)
             values[item.name] = value.copy() if isinstance(value, np.ndarray) else value
         self.state = RIVASandIntermediateBiasFlowState(**values)
+        # Initial density depends only on the admitted pressure anchor and the
+        # initial state, neither of which evolves during cyclic integration.
+        self.state.initial_relative_density_value = float(
+            super().initial_relative_density(self.state)
+        )
         return self.state.copy()
+
+    def initial_relative_density(self, state: RIVASandState) -> float:
+        if isinstance(state, RIVASandIntermediateBiasFlowState):
+            cached = state.initial_relative_density_value
+            if cached >= 0.0:
+                return float(cached)
+        return float(super().initial_relative_density(state))
+
+    def reference_relative_density(self) -> float:
+        cached = getattr(self, "_reference_relative_density_value", None)
+        if cached is not None:
+            return float(cached)
+        return float(super().reference_relative_density())
 
     def _intermediate_density_gate(self, state: RIVASandState) -> float:
         cfg = self.parameters
@@ -266,6 +289,8 @@ class RIVASandIntermediateBiasFlowModel(RIVASandMappingBackstressModel):
             if isinstance(state, RIVASandIntermediateBiasFlowState)
             else self._raw_intermediate_gate_values(state)[1]
         )
+        if bias_gate == 0.0:
+            return 0.0
         # The common amplitude memory is a one-sided excursion at the first
         # reversal and a full peak-to-peak range thereafter.  Put both on the
         # same full-cycle scale before this high-bias gate is evaluated.  This
@@ -288,10 +313,12 @@ class RIVASandIntermediateBiasFlowModel(RIVASandMappingBackstressModel):
 
     def intermediate_branch_multiplier(self, state: RIVASandState) -> float:
         cfg = self.parameters
-        transition = self.transformation_progress(state)
         low_gate = self.intermediate_bias_flow_gate(state)
         high_gate = self.intermediate_high_bias_flow_gate(state)
-        if max(low_gate, high_gate) <= 1.0e-14 or transition <= 1.0e-14:
+        if max(low_gate, high_gate) <= 1.0e-14:
+            return 1.0
+        transition = self.transformation_progress(state)
+        if transition <= 1.0e-14:
             return 1.0
 
         direction_norm = tensor_norm(state.cyclic_direction)
@@ -349,6 +376,8 @@ class RIVASandIntermediateBiasFlowModel(RIVASandMappingBackstressModel):
             gate = state.intermediate_high_gate_base
         else:
             gate = self._raw_intermediate_gate_values(state)[1]
+        if gate == 0.0:
+            return 1.0
         ramp = self._smoothstep(
             state.amplitude_reversals
             / self.parameters.intermediate_high_bias_phase_activation_reversals
@@ -446,6 +475,45 @@ class RIVASandIntermediateBiasFlowModel(RIVASandMappingBackstressModel):
         return float(
             activity * self.intermediate_high_bias_phase_activation(state)
         )
+
+    def cyclic_flow_factors(
+        self, pressure: float, state: RIVASandState
+    ) -> tuple[float, float]:
+        """Evaluate the inherited three-level cyclic-flow blend once.
+
+        The base, phase-transformation, and loose-flow implementations each
+        recompute the same pressure ratio and power before blending their
+        shear factors.  This specialization preserves their operation order
+        while sharing that common scalar activity.
+        """
+        cfg = self.parameters
+        if (
+            not cfg.cyclic_flow_correction_enabled
+            or state.amplitude_reversals < cfg.cyclic_flow_minimum_reversals
+        ):
+            return 1.0, 1.0
+        pressure_ratio = np.clip(
+            pressure / max(state.pressure_anchor, cfg.p_min), 0.0, 1.0
+        )
+        activity = pressure_ratio**cfg.cyclic_flow_pressure_exponent
+        shear = 1.0 - cfg.cyclic_shear_modulus_reduction * activity
+        hardening = 1.0 + cfg.cyclic_hardening_boost * activity
+        if cfg.phase_transformation_enabled:
+            phase_shear = (
+                1.0
+                - cfg.phase_cyclic_shear_modulus_reduction * activity
+            )
+            phase_gate = self.phase_dense_bias_gate(state)
+            shear = shear + phase_gate * (phase_shear - shear)
+        if cfg.loose_shear_flow_enabled:
+            loose_gate = self.loose_phase_gate(state)
+            if loose_gate > 1.0e-14:
+                loose_shear = (
+                    1.0
+                    - cfg.loose_shear_cyclic_modulus_reduction * activity
+                )
+                shear = shear + loose_gate * (loose_shear - shear)
+        return float(shear), float(hardening)
 
     def moduli_for_state(
         self, pressure: float, state: RIVASandState

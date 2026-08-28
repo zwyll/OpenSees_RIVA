@@ -125,11 +125,50 @@ gate. Its early first-cycle pressure transient remains the largest residual.
 
 ## Computational cost and decision
 
-In a direct Python strain-driven benchmark with four fixed substeps, the full
-shear-plus-volume successor costs about 16% more per host update than the
-mapping/backstress checkpoint when active. The disabled successor wrapper is
-about 3% slower. This is a Python research measurement, not a native OpenSees
-or Hercules benchmark.
+Before port preparation, a direct Python strain-driven benchmark with four
+fixed substeps showed measurable wrapper and active-mechanism overhead. A
+response-preserving optimization pass then removed the following redundant
+work:
+
+- scalar smoothstep coordinates no longer dispatch through NumPy array
+  clipping;
+- initial and reference relative density are evaluated once instead of on
+  every constitutive query;
+- zero intermediate and loose-flow gates return before evaluating branch
+  progress; and
+- the inherited base, phase-transformation, and loose cyclic-flow factors
+  share one pressure activity rather than evaluating it three times.
+
+For ten strain-driven cycles at 32 host points and four fixed substeps, the
+median of five Python timings changed from 3888 to 2184 microseconds per host
+update in the `3484_b025` window, from 5711 to 3336 in the `3484_b030` window,
+and from 2215 to 1207 on a zero-bias inactive path. These are reductions of
+44%, 42%, and 46%, respectively. They are Python-oracle measurements, not
+native OpenSees or Hercules predictions; scalar NumPy overhead will not exist
+in the native port.
+
+The optimization is response-exact in the available regression record. All
+eight primary histories are bit-for-bit identical over 87 recorded fields,
+the three high-bias holdout histories are bit-for-bit identical, and all 11
+affected CSR jobs retain identical non-runtime records.
+
+### Native-port evaluation cache
+
+The flattened Hercules kernel should preserve these reductions and go one
+step further by using an update-local scalar cache. Evaluate the following
+once at initialization or cyclic activation: initial relative density,
+reference relative density, density-only gates, admitted static-bias gates,
+and the fixed static-bias direction. Evaluate the following once per trial
+state/substep and share them among modulus, hardening, flow, and compatible
+volume laws: stress invariants, pressure ratio, bounding/dilatancy surfaces,
+projected bias, branch progress, transformation zone, and cyclic-flow
+activity. Recorder-only diagnostics must remain outside the constitutive
+inner loop.
+
+The ratchet-corrected second backbone evaluation, fixed constitutive
+substeps, host-level phase-volume update, and final compatible-pressure
+rebuild are not redundant. They change the accepted state and must remain in
+the native implementation.
 
 The correction resolves the two stated defects in the research driver, but it
 is not yet a production replacement. The inherited 40-kPa alpha=0.25 CSR--N

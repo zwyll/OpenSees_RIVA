@@ -227,6 +227,8 @@ class RIVASandLooseBiasedShearFlowModel(
         if not cfg.loose_shear_flow_enabled or not state.cyclic_phase_active:
             return shear, bulk
         gate = self.loose_phase_gate(state)
+        if gate <= 1.0e-14:
+            return shear, bulk
         scale = 1.0 + gate * (cfg.loose_shear_modulus_scale - 1.0)
         transition = self._smoothstep(
             (

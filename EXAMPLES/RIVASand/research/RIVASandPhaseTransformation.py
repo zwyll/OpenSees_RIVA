@@ -226,7 +226,15 @@ class RIVASandPhaseTransformationModel(RIVASandModel):
 
     @staticmethod
     def _smoothstep(value: float) -> float:
-        value = float(np.clip(value, 0.0, 1.0))
+        # This helper is called only with scalar coordinates, often dozens of
+        # times in one constitutive substep.  ``np.clip`` dispatches through
+        # NumPy's array protocol even for a scalar; direct bounds preserve the
+        # same map without that repeated machinery.
+        value = float(value)
+        if value <= 0.0:
+            return 0.0
+        if value >= 1.0:
+            return 1.0
         return value * value * (3.0 - 2.0 * value)
 
     def branch_progress(self, state: RIVASandState) -> float:

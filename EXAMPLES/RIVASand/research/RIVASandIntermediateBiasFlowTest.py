@@ -35,6 +35,14 @@ def initial_stress(shear: float) -> np.ndarray:
 
 
 class IntermediateBiasFlowTest(unittest.TestCase):
+    def test_initial_relative_density_is_cached_and_copied(self) -> None:
+        model = RIVASandIntermediateBiasFlowModel()
+        state = model.initialize(initial_stress(10.0), 0.601)
+        cached = state.initial_relative_density_value
+        self.assertGreaterEqual(cached, 0.0)
+        self.assertEqual(model.initial_relative_density(state), cached)
+        self.assertEqual(state.copy().initial_relative_density_value, cached)
+
     def test_disabled_successor_is_exact_mapping_checkpoint(self) -> None:
         parent = RIVASandMappingBackstressModel(
             RIVASandMappingBackstressParameters()
