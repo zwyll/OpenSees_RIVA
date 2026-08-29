@@ -104,6 +104,7 @@ extern OPS_Routine OPS_PM4SandMaterial;
 extern OPS_Routine OPS_PM4SiltMaterial;
 extern OPS_Routine OPS_LinearElasticGGmaxMaterial;
 extern OPS_Routine OPS_RIVASandMaterial;
+extern OPS_Routine OPS_RIVASandIntermediateBiasResearchMaterial;
 extern OPS_Routine OPS_CycLiqCPMaterial;
 extern OPS_Routine OPS_CycLiqCPSPMaterial;
 extern OPS_Routine OPS_InitStressNDMaterial;
@@ -280,6 +281,7 @@ static std::unordered_map<std::string, OPS_Routine*> OldMaterialCommands = {
   {"PM4Silt",                       OPS_PM4SiltMaterial},
   {"LinearElasticGGmax",            OPS_LinearElasticGGmaxMaterial},
   {"RIVASand",                      OPS_RIVASandMaterial},
+  {"RIVASandIntermediateBiasResearch", OPS_RIVASandIntermediateBiasResearchMaterial},
   {"ContactMaterial2D",             OPS_ContactMaterial2DMaterial},
   {"ContactMaterial3D",             OPS_ContactMaterial3DMaterial},
   {"InitialStateAnalysisWrapper",   OPS_InitialStateAnalysisWrapperMaterial},

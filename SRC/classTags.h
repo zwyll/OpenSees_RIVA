@@ -532,6 +532,8 @@
 #define ND_TAG_LinearElasticGGmax             14026
 // RIVA-Sand material - W. Zhang
 #define ND_TAG_RIVASand                       14027
+// Intermediate-bias RIVA-Sand research successor - W. Zhang
+#define ND_TAG_RIVASandIntermediateBiasResearch 14028
 // MultiaxialCyclicPlasticity, add by Gang Wang
 #define ND_TAG_MultiaxialCyclicPlasticity             10031
 #define ND_TAG_MultiaxialCyclicPlasticity3D           10032
