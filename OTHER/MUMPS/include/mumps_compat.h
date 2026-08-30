@@ -1,10 +1,10 @@
 /*
  *
- *  This file is part of MUMPS 5.5.1, released
- *  on Tue Jul 12 13:17:24 UTC 2022
+ *  This file is part of MUMPS 5.9.1, released
+ *  on Mon Jul 20 09:00:43 UTC 2026
  *
  *
- *  Copyright 1991-2022 CERFACS, CNRS, ENS Lyon, INP Toulouse, Inria,
+ *  Copyright 1991-2026 CERFACS, CNRS, ENS Lyon, INP Toulouse, Inria,
  *  Mumps Technologies, University of Bordeaux.
  *
  *  This version of MUMPS is provided to you free of charge. It is
@@ -36,7 +36,7 @@
 # endif
 #endif
 
-#if (__STDC_VERSION__ >= 199901L)
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L)
 # define MUMPS_INLINE static inline
 #else
 # define MUMPS_INLINE

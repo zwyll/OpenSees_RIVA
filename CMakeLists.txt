@@ -448,7 +448,9 @@ if(MPI_FOUND)
   else()
      set (MUMPS_FLAG -D_MUMPS)
      if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-       set (MUMPS_LIBRARIES "${MUMPS_DIR}/dmumps;${MUMPS_DIR}/mumps_common;${MUMPS_DIR}/pord")
+       # local build fix: MSVC needs the .lib extension, else link tries *.obj
+       # (scivision mumps >= 5.9 wrapper stages libs under <build>/lib)
+       set (MUMPS_LIBRARIES "${MUMPS_DIR}/lib/dmumps.lib;${MUMPS_DIR}/lib/mumps_common.lib;${MUMPS_DIR}/lib/pord.lib")
      else()
        set (MUMPS_LIBRARIES "${MUMPS_DIR}/libdmumps.a;${MUMPS_DIR}/libmumps_common.a;${MUMPS_DIR}/libpord.a")
      endif()
@@ -476,7 +478,10 @@ if(MKL_FOUND)
       message(FATAL_ERROR "MKL libraries not found in expected locations")
     endif()
 
-    set (SCALAPACK_LIBRARIES "${MKL_LPATH}/mkl_scalapack_ilp64.lib;${MKL_LPATH}/mkl_intel_ilp64.lib;${MKL_LPATH}/mkl_sequential.lib;${MKL_LPATH}/mkl_core.lib;${MKL_LPATH}/mkl_blacs_intelmpi_ilp64.lib")
+    # LOCAL BUILD FIX: the ilp64 (64-bit-integer) MKL interface corrupts every
+    # 32-bit-integer BLAS call made by lp64-built MUMPS (garbage DGEMM dims ->
+    # access violation in factorization). Use the lp64 interface throughout.
+    set (SCALAPACK_LIBRARIES "${MKL_LPATH}/mkl_scalapack_lp64.lib;${MKL_LPATH}/mkl_intel_lp64.lib;${MKL_LPATH}/mkl_sequential.lib;${MKL_LPATH}/mkl_core.lib;${MKL_LPATH}/mkl_blacs_intelmpi_lp64.lib")
   endif()
 
 else()
@@ -738,7 +743,7 @@ if(MPI_FOUND)
     )
 
 
-    target_include_directories(OpenSeesSP PRIVATE ${MUMPS_DIR}/_deps/mumps-src/include ${MPI_CXX_INCLUDE_DIRS})
+    target_include_directories(OpenSeesSP PRIVATE ${MUMPS_DIR}/_deps/mumps_upstream-src/include ${MPI_CXX_INCLUDE_DIRS})
     target_compile_options(OpenSeesSP PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 
     if (DEFINED OPENMPI)
@@ -798,7 +803,7 @@ if(MPI_FOUND)
       ${OPS_SRC_DIR}/domain/subdomain/ShadowSubdomain.cpp
     )
 
-    target_include_directories(OpenSeesMP PRIVATE ${MUMPS_DIR}/_deps/mumps-src/include ${MPI_CXX_INCLUDE_DIRS})
+    target_include_directories(OpenSeesMP PRIVATE ${MUMPS_DIR}/_deps/mumps_upstream-src/include ${MPI_CXX_INCLUDE_DIRS})
 
     target_compile_options(OpenSeesMP PRIVATE ${MPI_CXX_COMPILE_FLAGS})
 
