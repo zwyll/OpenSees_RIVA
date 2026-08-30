@@ -47,7 +47,7 @@ typedef struct riva_material_parameters_t {
 
 #define RIVA_IB_BASE_PARAMETER_COUNT 117
 #define RIVA_IB_BASE_CONSTITUTIVE_PARAMETER_COUNT 112
-#define RIVA_IB_BASE_STATE_VALUE_COUNT 93
+#define RIVA_IB_BASE_STATE_VALUE_COUNT 94
 #define RIVA_IB_BASE_KERNEL_REVISION 2u
 #define RIVA_IB_BASE_PARAMETER_SHA256 \
     "9585f0c155c9444885c5115e7753a1a5d97c783e2c685938a49a65435c9e8f83"
@@ -94,6 +94,11 @@ typedef struct riva_parameters_t {
     double bias_reversible_volume_reference_bias;
     double bias_reversible_volume_bias_exponent;
     double bias_reversible_volume_pressure_exponent;
+    /* ep_half_last gate reference.  Sits below every calibrated half-cycle's
+     * plastic multiplier (golden floor 3.4e-5 in cyclic_bias0375_dense), so
+     * the gate is exactly 1.0 on every calibrated path and the frozen oracle
+     * is preserved bit-for-bit.  Ported from v10 commit 4e540a6c9. */
+    double bias_reversible_volume_ep_ref;
     double bias_reversible_volume_buildup_reversals;
     double bias_reversible_mean_scale;
     double bias_reversible_mean_transition_pressure;
@@ -125,6 +130,15 @@ typedef struct riva_parameters_t {
 typedef struct riva_state_t {
     tensor_t stress, alpha, alpha0, alpha01, n, fabric;
     double D, beta, lambda_total, ep_eq_since_reversal, void_ratio;
+    /* Plastic multiplier of the last COMPLETED half-cycle, captured from
+     * ep_eq_since_reversal at reversal registration.  Gates the bias
+     * reversible volume (PM4Sand/SANISAND-style: cyclic volumetric response
+     * follows the plastic multiplier, so elastic/micro cycles drive nothing).
+     * Ported from RIVASand v10 commit 4e540a6c9: without it every micro-
+     * reversal during a slope's gravity redistribution fires the full
+     * volumetric pulse (phase is normalised by cyclic_amplitude), the host
+     * can never reach static equilibrium, and the settle walks. */
+    double ep_half_last;
     int64_t reversals, pressure_floor_hits, denominator_floor_hits;
     int64_t beta_fallbacks;
     double eps_v_total, eps_v_confining, eps_v_irreversible;
@@ -235,6 +249,7 @@ RIVA_IB_BASE_HD static inline riva_parameters_t riva_reference_parameters(double
     p.bias_reversible_volume_reference_bias=0.646;
     p.bias_reversible_volume_bias_exponent=2.0;
     p.bias_reversible_volume_pressure_exponent=0.22;
+    p.bias_reversible_volume_ep_ref=1.5e-5;
     p.bias_reversible_volume_buildup_reversals=6.0;
     p.bias_reversible_mean_scale=9.0e-5;
     p.bias_reversible_mean_transition_pressure=40.0*stress_scale;
@@ -868,6 +883,8 @@ RIVA_IB_BASE_HD static inline riva_state_t riva_backbone_forward_euler(
     state.eps_v_total=eps_v_total; state.eps_v_confining=eps_v_confining;
     state.eps_v_irreversible=eps_v_ir; state.eps_v_reversible=eps_v_re;
     if (state.reversals>old->reversals) {
+        /* capture the completed half-cycle's plastic multiplier (v10 4e540a6c9) */
+        state.ep_half_last=old->ep_eq_since_reversal;
         const tensor_t reversal_dev=riva_dev(old->stress);
         const double excursion=riva_norm(riva_sub(reversal_dev,old->last_reversal_deviator));
         const double divisor=old->amplitude_reversals==0?1.0:2.0;
@@ -891,6 +908,24 @@ RIVA_IB_BASE_HD static inline double riva_bias_reversible_factor(
         pow(riva_projected_bias(s),p->bias_reversible_exponent);
 }
 
+RIVA_IB_BASE_HD static inline double riva_smoothstep(double value)
+{ value=riva_clip(value,0.0,1.0); return value*value*(3.0-2.0*value); }
+
+RIVA_IB_BASE_HD static inline double riva_bias_ratchet_activity(
+    const riva_parameters_t *p,const riva_state_t *s)
+{
+    if (!p->static_bias_enabled || !p->bias_ratchet_enabled ||
+        !s->cyclic_phase_active || s->amplitude_reversals<p->bias_minimum_reversals)
+        return 0.0;
+    const double bias=riva_projected_bias(s);
+    if (bias<=1.0e-14) return 0.0;
+    const double amplitude_position=(s->cyclic_amplitude-p->bias_ratchet_amplitude_onset)/
+        (p->bias_ratchet_amplitude_full-p->bias_ratchet_amplitude_onset);
+    const double ratio_position=(s->cyclic_amplitude/bias-p->bias_ratchet_ratio_full)/
+        (p->bias_ratchet_ratio_cutoff-p->bias_ratchet_ratio_full);
+    return riva_smoothstep(amplitude_position)*(1.0-riva_smoothstep(ratio_position));
+}
+
 RIVA_IB_BASE_HD static inline double riva_bias_reversible_volume_target(
     const riva_parameters_t *p,const riva_state_t *s)
 {
@@ -900,6 +935,15 @@ RIVA_IB_BASE_HD static inline double riva_bias_reversible_volume_target(
     if (direction_norm<=1.0e-14 || s->cyclic_amplitude<=1.0e-14) return 0.0;
     const double bias=riva_projected_bias(s);
     if (bias<=1.0e-14) return 0.0;
+    /* Plastic-activity gate (v10 4e540a6c9): the reversible volume follows
+     * the plastic multiplier of the last completed half-cycle, so elastic /
+     * micro cycles drive nothing.  ep_ref sits below every calibrated
+     * half-cycle, so the gate saturates at exactly 1.0 on every calibrated
+     * path (frozen oracle preserved bit-for-bit); it closes only on the
+     * micro-reversals a slope produces during gravity redistribution. */
+    const double plastic_gate=riva_smoothstep(
+        s->ep_half_last/p->bias_reversible_volume_ep_ref);
+    if (plastic_gate<=0.0) return 0.0;
     const tensor_t phase_direction=riva_scale(s->cyclic_direction,1.0/direction_norm);
     const tensor_t current=riva_dev(s->stress);
     const tensor_t static_dev=riva_add(s->geostatic_deviator,
@@ -907,7 +951,7 @@ RIVA_IB_BASE_HD static inline double riva_bias_reversible_volume_target(
     const double dynamic_projection=riva_ddot(riva_sub(current,static_dev),phase_direction);
     const double phase=riva_clip(dynamic_projection/
         (s->pressure_anchor*s->cyclic_amplitude),-1.0,1.0);
-    double bias_factor=pow(p->bias_reversible_volume_reference_bias/bias,
+    double bias_factor=plastic_gate*pow(p->bias_reversible_volume_reference_bias/bias,
                            p->bias_reversible_volume_bias_exponent);
     /* The calibrated inverse-bias law is not defined in the zero-bias limit.
      * Leave the verified range unchanged, but fade it continuously to zero
@@ -935,23 +979,6 @@ RIVA_IB_BASE_HD static inline double riva_bias_reversible_volume_target(
     return oscillation+mean_shift;
 }
 
-RIVA_IB_BASE_HD static inline double riva_smoothstep(double value)
-{ value=riva_clip(value,0.0,1.0); return value*value*(3.0-2.0*value); }
-
-RIVA_IB_BASE_HD static inline double riva_bias_ratchet_activity(
-    const riva_parameters_t *p,const riva_state_t *s)
-{
-    if (!p->static_bias_enabled || !p->bias_ratchet_enabled ||
-        !s->cyclic_phase_active || s->amplitude_reversals<p->bias_minimum_reversals)
-        return 0.0;
-    const double bias=riva_projected_bias(s);
-    if (bias<=1.0e-14) return 0.0;
-    const double amplitude_position=(s->cyclic_amplitude-p->bias_ratchet_amplitude_onset)/
-        (p->bias_ratchet_amplitude_full-p->bias_ratchet_amplitude_onset);
-    const double ratio_position=(s->cyclic_amplitude/bias-p->bias_ratchet_ratio_full)/
-        (p->bias_ratchet_ratio_cutoff-p->bias_ratchet_ratio_full);
-    return riva_smoothstep(amplitude_position)*(1.0-riva_smoothstep(ratio_position));
-}
 
 RIVA_IB_BASE_HD static inline double riva_bias_ratchet_capacity(
     const riva_parameters_t *p,const riva_state_t *s)
@@ -1156,6 +1183,7 @@ RIVA_IB_BASE_HD static inline int riva_state_values(
     RIVA_STATE_TENSOR(state->n); RIVA_STATE_TENSOR(state->fabric);
     values[i++]=state->D; values[i++]=state->beta;
     values[i++]=state->lambda_total; values[i++]=state->ep_eq_since_reversal;
+    values[i++]=state->ep_half_last;
     values[i++]=state->void_ratio; values[i++]=(double)state->reversals;
     values[i++]=(double)state->pressure_floor_hits;
     values[i++]=(double)state->denominator_floor_hits;

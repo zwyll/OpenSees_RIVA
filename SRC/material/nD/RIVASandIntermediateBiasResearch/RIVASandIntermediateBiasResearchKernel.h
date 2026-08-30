@@ -26,7 +26,7 @@
 
 #define RIVA_IB_PARAMETER_COUNT 248
 #define RIVA_IB_LOGICAL_STATE_COUNT 62
-#define RIVA_IB_STATE_VALUE_COUNT 137
+#define RIVA_IB_STATE_VALUE_COUNT 138
 #define RIVA_IB_KERNEL_REVISION 2u
 #define RIVA_IB_PARAMETER_SHA256 \
     "85bd23d467e3e5f29a3b44da9903606a9dee95d5f16d9f25f16e1b1611b34397"
@@ -151,6 +151,30 @@ typedef struct riva_ib_parameters_t {
     int32_t mapping_corrector_iterations;
     double mapping_corrector_relaxation;
     double mapping_outer_tolerance;
+
+    /* Static-settle guards (default 0 = frozen behaviour, bit-exact).
+     * Both target a boundary-value-problem regime the element tests never
+     * visit: a sustained static shear held under gravity with no reversal.
+     * There the production kernel is still, but this kernel creeps without
+     * bound and its answer drifts with the solver tolerance (see the
+     * RIVA-Sand LEAP slice-model settle probes, 2026-08-30).
+     *   zero_increment_guard   port of production riva_update_material's
+     *                          early return on a zero strain increment: a
+     *                          rate-independent zero increment must not
+     *                          advance any history merely because the host
+     *                          took a step.
+     *   phase_volume_after_reversal
+     *                          the host-level phase volume and the
+     *                          pre-reversal phase-activity branch become
+     *                          active only once a genuine reversal has been
+     *                          registered (amplitude_reversals >= 1).  This is
+     *                          the behaviour the checkpoint text describes
+     *                          ("ramps that PT activity over completed
+     *                          half-cycles"); before the first reversal the
+     *                          path-length-driven irreversible volume has no
+     *                          cycle to belong to and is a creep source. */
+    int32_t zero_increment_guard;
+    int32_t phase_volume_after_reversal;
 
     int32_t intermediate_bias_flow_enabled;
     double intermediate_bias_density_onset;
@@ -588,6 +612,8 @@ riva_ib_reference_parameters(double stress_scale)
     p.mapping_memory_shear_activation=3.0;
     p.mapping_corrector_iterations=5; p.mapping_corrector_relaxation=1.0;
     p.mapping_outer_tolerance=1.0e-10;
+    p.zero_increment_guard=0;
+    p.phase_volume_after_reversal=0;
     p.intermediate_bias_flow_enabled=1;
     p.intermediate_bias_density_onset=0.60;
     p.intermediate_bias_density_peak=0.663;
@@ -813,6 +839,9 @@ RIVA_IB_HD static inline double riva_ib_phase_volume_gate(
     const double loose_activation=riva_max(riva_max(p->loose_phase_activity_scale,
         p->loose_phase_wave_activity_scale),riva_max(p->loose_phase_mean_activity_scale,
         p->loose_phase_replacement_fraction));
+    /* F2: the host-level phase volume is a cycle-level quantity; it has no
+     * cycle to belong to before the first reversal has been registered. */
+    if (p->phase_volume_after_reversal && s->base.amplitude_reversals<1) return 0.0;
     double gate=riva_max(riva_ib_phase_volume_gate_parent(p,s),
         riva_max(riva_ib_unbiased_gate(p,s),loose*loose_activation));
     if (s->base.cyclic_phase_active && s->base.amplitude_reversals<1)
@@ -933,6 +962,8 @@ RIVA_IB_HD static inline double riva_ib_phase_activity(
     double bias_exponent,double pressure_exponent)
 {
     double activity=riva_ib_phase_activity_parent(p,s,bias_exponent,pressure_exponent);
+    /* F2: no phase activity of any kind before the first genuine reversal. */
+    if (p->phase_volume_after_reversal && s->base.amplitude_reversals<1) return 0.0;
     if (activity<=0.0 && s->base.cyclic_phase_active &&
         s->intermediate_high_gate_base>1.0e-14 && s->base.amplitude_reversals<1) {
         const double ratio=riva_ib_pre_reversal_excursion(p,s)/
@@ -1534,7 +1565,7 @@ RIVA_IB_HD static inline riva_ib_state_t riva_ib_base_backbone(
         void_ratio,eps_ir,eps_re,&D_ir,&D_re);
     D_ir=riva_ib_mul_rn(D_ir,riva_ib_irreversible_factor(p,old));
 
-    state.base.stress=riva_sub(s,riva_iso(pressure));
+    state.base.stress=riva_sub(s,riva_iso(riva_physical_pressure(&p->base,pressure)));
     state.base.alpha=alpha; state.base.alpha0=alpha0; state.base.alpha01=alpha01;
     state.base.n=normal; state.base.fabric=fabric;
     state.base.D_ir=D_ir; state.base.D_re=D_re;
@@ -1892,7 +1923,7 @@ RIVA_IB_HD static inline riva_ib_state_t riva_ib_mapping_backbone(
     d_ir_end*=riva_ib_irreversible_factor(p,old);
     d_ir_end*=riva_ib_directional_phase_scale(p,old,backstress_end,capacity);
     ep_eq=riva_ib_add_rn(ep_eq,dl);
-    state.base.stress=riva_sub(s_end,riva_iso(pressure));
+    state.base.stress=riva_sub(s_end,riva_iso(riva_physical_pressure(&p->base,pressure)));
     state.base.alpha=alpha; state.base.alpha0=alpha0; state.base.alpha01=alpha01;
     state.base.n=flow_end; state.base.fabric=old->base.fabric;
     state.base.D_ir=d_ir_end; state.base.D_re=d_re_end; state.base.D=d_ir_end+d_re_end;
@@ -2012,7 +2043,7 @@ RIVA_IB_HD static inline riva_ib_state_t riva_ib_mechanical_state(
         dev=riva_regularize_deviator(&p->base,m,pressure,out.base.void_ratio,
             s->base.alpha,1,dev,&out.base.alpha);
     else out.base.alpha=riva_ib_div(dev,pressure);
-    out.base.stress=riva_sub(dev,riva_iso(pressure));
+    out.base.stress=riva_sub(dev,riva_iso(riva_physical_pressure(&p->base,pressure)));
     return out;
 }
 
@@ -2068,7 +2099,7 @@ RIVA_IB_HD static inline riva_ib_state_t riva_ib_forward_euler(
             dev=riva_regularize_deviator(&p->base,m,pressure,state.base.void_ratio,
                 state.base.alpha,1,dev,&state.base.alpha);
         else state.base.alpha=riva_ib_div(dev,pressure);
-        state.base.stress=riva_sub(dev,riva_iso(pressure));
+        state.base.stress=riva_sub(dev,riva_iso(riva_physical_pressure(&p->base,pressure)));
         state.base.pressure_floor_hits+=hit?1:0;
     }
     state.base.void_ratio=old->base.void_ratio+
@@ -2094,7 +2125,7 @@ RIVA_IB_HD static inline void riva_ib_rebuild_pressure(
         dev=riva_regularize_deviator(&p->base,m,pressure,s->base.void_ratio,
             s->base.alpha,1,dev,&s->base.alpha);
     else s->base.alpha=riva_ib_div(dev,pressure);
-    s->base.stress=riva_sub(dev,riva_iso(pressure));
+    s->base.stress=riva_sub(dev,riva_iso(riva_physical_pressure(&p->base,pressure)));
     s->base.pressure_floor_hits+=hit?1:0;
 }
 
@@ -2240,7 +2271,7 @@ RIVA_IB_HD static inline riva_ib_state_t riva_ib_host_outer_correction(
         s.mapping_directional_fabric=riva_ib_fabric_update(p,
             s.mapping_directional_fabric,direction,s.base.D,dl);
         dev=riva_scale(direction,radius);
-        s.base.stress=riva_sub(dev,riva_iso(pressure));
+        s.base.stress=riva_sub(dev,riva_iso(riva_physical_pressure(&p->base,pressure)));
         s.base.alpha=riva_ib_div(dev,pressure);
         s.base.lambda_total+=dl; s.base.ep_eq_since_reversal+=dl;
         const double gate=riva_ib_mapping_gate(p,&s);
@@ -2270,6 +2301,12 @@ RIVA_IB_HD static inline int riva_ib_update_material(
     if (!p || !m || !state || !state->base.initialized || nsub<1 ||
         !riva_material_parameters_valid(&p->base,m) || !riva_finite_tensor(deps))
         return 0;
+    /* F1: port of the production kernel's zero-increment early return. */
+    if (p->zero_increment_guard && riva_ddot(deps,deps)==0.0) {
+        if (stress_new) *stress_new=state->base.stress;
+        if (info) { info->accepted_substeps=0; info->reversal_registered=0; }
+        return 1;
+    }
     const int objective=p->base.objective_reversal_enabled;
     int valid=0;
     const tensor_t direction=objective?riva_ib_host_direction(&p->base,deps,&valid):

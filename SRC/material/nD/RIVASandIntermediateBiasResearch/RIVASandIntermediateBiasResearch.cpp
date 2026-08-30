@@ -21,7 +21,7 @@ using namespace riva_ib_native;
 
 namespace {
 
-const int RIVASerializedSize = 179;
+const int RIVASerializedSize = 182;
 
 bool finiteVector(const Vector &value)
 {
@@ -42,7 +42,8 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
                << "<-stressScale value> <-pMin value> "
                << "<-tangentPMin value> <-pResidual value> "
                << "<-geostaticAdmission> <-stage 0|1> "
-               << "<-initialStress sxx syy szz sxy syz sxz>" << endln;
+               << "<-initialStress sxx syy szz sxy syz sxz> "
+               << "<-zeroIncrementGuard> <-phaseVolumeAfterReversal>" << endln;
         return 0;
     }
 
@@ -67,6 +68,8 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
     double tangentPressureFloor = -1.0;
     double residualPressure = 0.0;
     bool geostaticAdmission = false;
+    bool zeroIncrementGuard = false;
+    bool phaseVolumeAfterReversal = false;
     int fixedSubsteps = 1;
     int stage = 0;
     bool stageSpecified = false;
@@ -126,6 +129,10 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
             }
         } else if (std::strcmp(option, "-geostaticAdmission") == 0) {
             geostaticAdmission = true;
+        } else if (std::strcmp(option, "-zeroIncrementGuard") == 0) {
+            zeroIncrementGuard = true;
+        } else if (std::strcmp(option, "-phaseVolumeAfterReversal") == 0) {
+            phaseVolumeAfterReversal = true;
         } else if (std::strcmp(option, "-stage") == 0) {
             count = 1;
             if (OPS_GetIntInput(&count, &stage) < 0) {
@@ -170,6 +177,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
         delete material;
         return 0;
     }
+    material->setStaticSettleGuards(zeroIncrementGuard, phaseVolumeAfterReversal);
     return material;
 }
 
@@ -256,6 +264,14 @@ void
 RIVASandIntermediateBiasResearch::setReferenceParameters(void)
 {
     mParameters = riva_ib_reference_parameters(mStressScale);
+}
+
+void
+RIVASandIntermediateBiasResearch::setStaticSettleGuards(bool zeroIncrementGuard,
+                                                        bool phaseVolumeAfterReversal)
+{
+    mParameters.zero_increment_guard = zeroIncrementGuard ? 1 : 0;
+    mParameters.phase_volume_after_reversal = phaseVolumeAfterReversal ? 1 : 0;
 }
 
 void
@@ -587,13 +603,15 @@ RIVASandIntermediateBiasResearch::sendSelf(int commitTag, Channel &theChannel)
     riva_ib_state_values(&mCommittedState, stateValues);
     for (int i = 0; i < RIVA_IB_STATE_VALUE_COUNT; ++i)
         data(35+i) = stateValues[i];
-    data(172) = mCommittedState.base.initialized;
-    data(173) = mParameters.base.p_min;
-    data(174) = mTangentPressureFloor;
-    data(175) = mParameters.base.p_residual;
-    data(176) = mGeostaticAdmission ? 1.0 : 0.0;
-    data(177) = mCommittedState.base.geostatic_admitted;
-    data(178) = RIVA_IB_KERNEL_REVISION;
+    data(173) = mCommittedState.base.initialized;
+    data(174) = mParameters.base.p_min;
+    data(175) = mTangentPressureFloor;
+    data(176) = mParameters.base.p_residual;
+    data(177) = mGeostaticAdmission ? 1.0 : 0.0;
+    data(178) = mCommittedState.base.geostatic_admitted;
+    data(179) = RIVA_IB_KERNEL_REVISION;
+    data(180) = mParameters.zero_increment_guard;
+    data(181) = mParameters.phase_volume_after_reversal;
 
     if (theChannel.sendVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASandIntermediateBiasResearch::sendSelf failed for tag "
@@ -623,6 +641,7 @@ RIVASandIntermediateBiasResearch::restoreState(
     state.base.D=values[i++]; state.base.beta=values[i++];
     state.base.lambda_total=values[i++];
     state.base.ep_eq_since_reversal=values[i++];
+    state.base.ep_half_last=values[i++];
     state.base.void_ratio=values[i++];
     state.base.reversals=(int64_t)std::llround(values[i++]);
     state.base.pressure_floor_hits=(int64_t)std::llround(values[i++]);
@@ -690,9 +709,9 @@ RIVASandIntermediateBiasResearch::recvSelf(int commitTag, Channel &theChannel,
         opserr << "RIVASandIntermediateBiasResearch::recvSelf failed" << endln;
         return -1;
     }
-    if ((uint32_t)std::llround(data(178)) != RIVA_IB_KERNEL_REVISION) {
+    if ((uint32_t)std::llround(data(179)) != RIVA_IB_KERNEL_REVISION) {
         opserr << "RIVASandIntermediateBiasResearch::recvSelf incompatible "
-               << "kernel revision " << data(178) << endln;
+               << "kernel revision " << data(179) << endln;
         return -1;
     }
     this->setTag((int)data(0));
@@ -704,10 +723,14 @@ RIVASandIntermediateBiasResearch::recvSelf(int commitTag, Channel &theChannel,
     mInitialStage = (int)std::llround(data(6));
     for (int i = 0; i < 6; ++i) mInitialStress(i) = data(7+i);
     setReferenceParameters();
-    mParameters.base.p_min = data(173);
-    mParameters.base.p_residual = data(175);
-    mGeostaticAdmission = std::llround(data(176)) != 0;
-    mTangentPressureFloor = riva_max(data(174), mParameters.base.p_min);
+    mParameters.base.p_min = data(174);
+    mParameters.base.p_residual = data(176);
+    mGeostaticAdmission = std::llround(data(177)) != 0;
+    mParameters.zero_increment_guard =
+        (int32_t)std::llround(data(180));
+    mParameters.phase_volume_after_reversal =
+        (int32_t)std::llround(data(181));
+    mTangentPressureFloor = riva_max(data(175), mParameters.base.p_min);
     setMaterialParameters(data(13), data(14), data(15), data(16), data(17),
                           data(18), data(19), data(20), data(21), data(22));
     for (int i = 0; i < 6; ++i) mCommittedStrain(i) = data(23+i);
@@ -715,8 +738,8 @@ RIVASandIntermediateBiasResearch::recvSelf(int commitTag, Channel &theChannel,
     double stateValues[RIVA_IB_STATE_VALUE_COUNT];
     for (int i = 0; i < RIVA_IB_STATE_VALUE_COUNT; ++i)
         stateValues[i] = data(35+i);
-    if (restoreState(stateValues, (int)std::llround(data(172)),
-                     (int)std::llround(data(177)),
+    if (restoreState(stateValues, (int)std::llround(data(173)),
+                     (int)std::llround(data(178)),
                      mCommittedState) != 0) return -1;
 
     mValid = mStressScale > 0.0 && mRho >= 0.0 && mFixedSubsteps >= 1 &&
@@ -874,6 +897,9 @@ RIVASandIntermediateBiasResearch::Print(OPS_Stream &output, int flag)
            << " pResidual=" << mParameters.base.p_residual
            << " geostaticAdmission="
            << (mGeostaticAdmission ? 1 : 0)
+           << " zeroIncrementGuard=" << mParameters.zero_increment_guard
+           << " phaseVolumeAfterReversal="
+           << mParameters.phase_volume_after_reversal
            << " tangentPMin=" << mTangentPressureFloor
            << " parameterSHA=" << RIVA_IB_PARAMETER_SHA256 << endln;
 }

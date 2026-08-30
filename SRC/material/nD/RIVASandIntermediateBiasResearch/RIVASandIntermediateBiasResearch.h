@@ -61,6 +61,8 @@ public:
     void Print(OPS_Stream &output, int flag = 0);
 
     bool isValid(void) const;
+    void setStaticSettleGuards(bool zeroIncrementGuard,
+                               bool phaseVolumeAfterReversal);
 
 private:
     enum {
