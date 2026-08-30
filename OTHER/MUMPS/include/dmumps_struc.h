@@ -1,9 +1,9 @@
 !
-!  This file is part of MUMPS 5.5.1, released
-!  on Tue Jul 12 13:17:24 UTC 2022
+!  This file is part of MUMPS 5.9.1, released
+!  on Mon Jul 20 09:00:43 UTC 2026
 !
 !
-!  Copyright 1991-2022 CERFACS, CNRS, ENS Lyon, INP Toulouse, Inria,
+!  Copyright 1991-2026 CERFACS, CNRS, ENS Lyon, INP Toulouse, Inria,
 !  Mumps Technologies, University of Bordeaux.
 !
 !  This version of MUMPS is provided to you free of charge. It is
@@ -11,7 +11,6 @@
 !  (see doc/CeCILL-C_V1-en.txt, doc/CeCILL-C_V1-fr.txt, and
 !  https://cecill.info/licences/Licence_CeCILL-C_V1-en.html)
 !
-      INCLUDE 'dmumps_root.h'
       TYPE DMUMPS_STRUC
         SEQUENCE
 !
@@ -46,7 +45,14 @@
         INTEGER(8) :: NNZ ! 64-bit integer input
         DOUBLE PRECISION, DIMENSION(:), POINTER :: A
         INTEGER, DIMENSION(:), POINTER :: IRN, JCN
-        DOUBLE PRECISION, DIMENSION(:), POINTER :: COLSCA, ROWSCA, pad0
+!    --------------
+!    Scaling arrays
+!    --------------
+        DOUBLE PRECISION, DIMENSION(:), POINTER :: COLSCA, ROWSCA
+        DOUBLE PRECISION, DIMENSION(:), POINTER :: COLSCA_loc
+        DOUBLE PRECISION, DIMENSION(:), POINTER :: ROWSCA_loc
+        INTEGER, DIMENSION(:), POINTER :: ROWIND, COLIND
+        DOUBLE PRECISION, DIMENSION(:), POINTER :: PIVOTS
 !
 !       ------------------------------------
 !       Case of distributed assembled matrix
@@ -96,7 +102,8 @@
         INTEGER, DIMENSION(:), POINTER :: ISOL_loc
         INTEGER, DIMENSION(:), POINTER :: IRHS_loc
         INTEGER :: LRHS, NRHS, NZ_RHS, Nloc_RHS, LRHS_loc, LREDRHS
-        INTEGER :: LSOL_loc, pad6
+        INTEGER :: LSOL_loc, NSOL_loc
+        INTEGER :: LD_RHSINTR, pad6
 !    ----------------------------
 !    Control parameters,
 !    statistics and output data
@@ -138,16 +145,16 @@
 !    -----------
 !    Out-of-core
 !    -----------
-        CHARACTER(LEN=255) :: OOC_TMPDIR
-        CHARACTER(LEN=63) :: OOC_PREFIX
+        CHARACTER(LEN=1023) :: OOC_TMPDIR
+        CHARACTER(LEN=255) :: OOC_PREFIX
 !    ------------------------------------------
 !    Name of file to dump a matrix/rhs to disk
 !    ------------------------------------------
-        CHARACTER(LEN=255) ::  WRITE_PROBLEM
+        CHARACTER(LEN=1023) ::  WRITE_PROBLEM
 !    -----------
 !    Save/Restore
 !    -----------
-        CHARACTER(LEN=255) :: SAVE_DIR
+        CHARACTER(LEN=1023) :: SAVE_DIR
         CHARACTER(LEN=255)  :: SAVE_PREFIX
         CHARACTER(LEN=7)   ::  pad7  
 !
@@ -171,7 +178,8 @@
         INTEGER,POINTER,DIMENSION(:) :: STEP, NE_STEPS, ND_STEPS
         INTEGER,POINTER,DIMENSION(:) :: FRERE_STEPS, DAD_STEPS
         INTEGER,POINTER,DIMENSION(:) :: FILS, FRTPTR, FRTELT
-        INTEGER(8),POINTER,DIMENSION(:) :: PTRAR
+        INTEGER(8),POINTER,DIMENSION(:) :: PTRAR, PTR8ARR
+        INTEGER,POINTER,DIMENSION(:) :: NINCOLARR,NINROWARR,PTRDEBARR
         INTEGER,POINTER,DIMENSION(:) :: NA, PROCNODE_STEPS
 !       Info for pruning tree 
         INTEGER,POINTER,DIMENSION(:) :: Step2node
@@ -181,13 +189,12 @@
         INTEGER(8), DIMENSION(:), POINTER :: PTRFAC
 !       main real working arrays for factorization/solve phases
         DOUBLE PRECISION, DIMENSION(:), POINTER :: S
+        REAL(kind(0.E0)), DIMENSION(:), POINTER :: LPS
 !       Information on mapping
         INTEGER, DIMENSION(:), POINTER :: PROCNODE
 !       Input matrix ready for numerical assembly 
 !           -arrowhead format in case of assembled matrix
 !           -element format otherwise
-        INTEGER, DIMENSION(:), POINTER :: INTARR
-        DOUBLE PRECISION, DIMENSION(:), POINTER :: DBLARR
 !       Element entry: internal data
         INTEGER :: NELT_loc, LELTVAR
         INTEGER, DIMENSION(:), POINTER :: ELTPROC
@@ -200,10 +207,10 @@
 !       For heterogeneous architecture
         INTEGER, DIMENSION(:), POINTER :: MEM_DIST
 !       Compressed RHS
-        INTEGER, DIMENSION(:),   POINTER :: POSINRHSCOMP_ROW
-        LOGICAL  :: POSINRHSCOMP_COL_ALLOC, pad11
-        INTEGER, DIMENSION(:),   POINTER :: POSINRHSCOMP_COL
-        DOUBLE PRECISION, DIMENSION(:),   POINTER :: RHSCOMP
+        INTEGER, DIMENSION(:),   POINTER :: GLOB2LOC_RHS
+        LOGICAL  :: GLOB2LOC_SOL_ALLOC, pad8
+        INTEGER, DIMENSION(:),   POINTER :: GLOB2LOC_SOL
+        DOUBLE PRECISION, DIMENSION(:),   POINTER :: RHSINTR
 !       Info on the subtrees to be used during factorization
         DOUBLE PRECISION, DIMENSION(:), POINTER :: MEM_SUBTREE
         DOUBLE PRECISION, DIMENSION(:), POINTER :: COST_TRAV
@@ -217,7 +224,7 @@
         INTEGER, DIMENSION(:),   POINTER :: SCHED_GRP
         INTEGER, DIMENSION(:),   POINTER :: SCHED_SBTR
         INTEGER, DIMENSION(:),   POINTER :: CROIX_MANU
-        DOUBLE PRECISION, DIMENSION(:), POINTER :: WK_USER
+        DOUBLE PRECISION, DIMENSION(:),   POINTER :: WK_USER
         INTEGER :: NBSA_LOCAL
         INTEGER :: LWK_USER
 !    Internal control array
@@ -233,29 +240,28 @@
         INTEGER(8), DIMENSION(:,:),   POINTER :: OOC_VADDR
         INTEGER,DIMENSION(:), POINTER :: OOC_TOTAL_NB_NODES
         INTEGER,DIMENSION(:), POINTER :: OOC_NB_FILES
-        INTEGER :: OOC_NB_FILE_TYPE,pad12
+        INTEGER :: OOC_NB_FILE_TYPE,pad9
         INTEGER,DIMENSION(:), POINTER :: OOC_FILE_NAME_LENGTH
         CHARACTER,DIMENSION(:,:), POINTER :: OOC_FILE_NAMES  
 !    Indices of nul pivots
         INTEGER,DIMENSION(:), POINTER :: PIVNUL_LIST
 !    Array needed to manage additionnal candidate processor 
-        INTEGER, DIMENSION(:,:), POINTER :: SUP_PROC, pad14
+        INTEGER, DIMENSION(:,:), POINTER :: SUP_PROC, pad10
 !    Lists of nodes where processors work. Built/used in solve phase.
         INTEGER, DIMENSION(:), POINTER :: IPTR_WORKING, WORKING
-!    Root structure(internal)
-        TYPE (DMUMPS_ROOT_STRUC) :: root
+!    Internal data structures accessor
+        CHARACTER, DIMENSION(:), POINTER :: INTR_ENCODING
 !    Low-rank
         INTEGER, POINTER, DIMENSION(:) :: LRGROUPS
-        INTEGER :: NBGRP,pad13
+        INTEGER :: NBGRP,pad11
 !    Pointer encoding for FDM_F data
         CHARACTER, DIMENSION(:), POINTER :: FDM_F_ENCODING
 !    Pointer array encoding BLR factors pointers
         CHARACTER, DIMENSION(:), POINTER :: BLRARRAY_ENCODING
 !    Multicore
-        TYPE(DMUMPS_L0OMPFAC_T),DIMENSION(:),POINTER :: L0_OMP_FACTORS
         INTEGER :: LPOOL_A_L0_OMP, LPOOL_B_L0_OMP
         INTEGER :: L_PHYS_L0_OMP
-        INTEGER :: L_VIRT_L0_OMP                                    
+        INTEGER :: L_VIRT_L0_OMP
         INTEGER :: LL0_OMP_MAPPING, LL0_OMP_FACTORS
         INTEGER(8) :: THREAD_LA
 ! Estimates before L0_OMP
@@ -278,11 +284,10 @@
 ! Mapping of the subtree nodes
         INTEGER, DIMENSION(:), POINTER :: L0_OMP_MAPPING
 ! Mpi to omp - mumps agile
-        INTEGER, DIMENSION(:), POINTER :: MPITOOMP_PROCS_MAP
-! for RR on root
+        INTEGER, DIMENSION(:), POINTER :: MTKO_PROCS_MAP
+! for Rank-Revealing on root
         DOUBLE PRECISION, DIMENSION(:), POINTER :: SINGULAR_VALUES
-        INTEGER ::  NB_SINGULAR_VALUES
-        INTEGER ::  Deficiency, pad16
+        INTEGER ::  NB_SINGULAR_VALUES,pad12
 ! To know if OOC files are associated to a saved and so if they should be removed.
-        LOGICAL :: ASSOCIATED_OOC_FILES
+        LOGICAL :: ASSOCIATED_OOC_FILES,pad13
       END TYPE DMUMPS_STRUC
