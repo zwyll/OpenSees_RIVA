@@ -103,4 +103,45 @@ foreach eleTag {1 2} {
         error "RIVASandIntermediateBiasResearch element $eleTag stress response is unavailable after activation"
     }
 }
-puts "PASS: every RIVASandIntermediateBiasResearch copy activated; pAnchors=$pressureAnchors kPa"
+
+# A positive residual cone pressure must admit a slightly tensile physical
+# surface stress without changing that already equilibrated skeleton stress.
+wipe
+model BasicBuilder -ndm 3 -ndf 4
+nDMaterial RIVASandIntermediateBiasResearch 8003 \
+    $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
+    0.78 0.51 10.0 1.5 0.65 -nSub 1 -stressScale 1.0 \
+    -pResidual 1.013 -geostaticAdmission -stage 1 \
+    -initialStress 0.2 0.2 0.2 0.0 0.0 0.0
+foreach {tag x y z} {
+    1 0 0 0  2 1 0 0  3 1 1 0  4 0 1 0
+    5 0 0 1  6 1 0 1  7 1 1 1  8 0 1 1
+} {
+    node $tag $x $y $z
+    fix $tag 1 1 1 1
+}
+element SSPbrickUP 3 1 2 3 4 5 6 7 8 8003 \
+    2.2e6 1.0 1.0e-8 1.0e-8 1.0e-8 0.601 1.0e-5
+set surfaceStress [eleResponse 3 stress]
+foreach value [lrange $surfaceStress 0 2] {
+    if {abs($value-0.2) > 1.0e-12} {
+        error "translated-cone activation changed physical surface stress: $surfaceStress"
+    }
+}
+
+# Formal geostatic admission deliberately leaves the research cyclic overlays
+# inactive in stage 1.  Entering stage 2 must activate those overlays without
+# changing the converged physical skeleton stress.
+updateMaterialStage -material 8003 -stage 2
+set dynamicStage [lindex [eleResponse 3 stage] 0]
+if {$dynamicStage != 2.0} {
+    error "RIVASandIntermediateBiasResearch element reports stage=$dynamicStage after dynamic activation"
+}
+set dynamicStress [eleResponse 3 stress]
+foreach value [lrange $dynamicStress 0 2] {
+    if {abs($value-0.2) > 1.0e-12} {
+        error "stage-2 activation changed physical surface stress: $dynamicStress"
+    }
+}
+
+puts "PASS: every RIVASandIntermediateBiasResearch copy activated; pAnchors=$pressureAnchors kPa; translated-cone stress preserved through stages 1 and 2"

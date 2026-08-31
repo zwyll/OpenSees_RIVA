@@ -41,7 +41,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
                << "eMax eMin Q R nG <-rho value> <-nSub value> "
                << "<-stressScale value> <-pMin value> "
                << "<-tangentPMin value> <-pResidual value> "
-               << "<-geostaticAdmission> <-stage 0|1> "
+               << "<-geostaticAdmission> <-stage 0|1|2> "
                << "<-initialStress sxx syy szz sxy syz sxz>" << endln;
         return 0;
     }
@@ -152,8 +152,8 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
     }
 
     if (initialStressSpecified && !stageSpecified) stage = 1;
-    if (stage == 1 && !initialStressSpecified) {
-        opserr << "WARNING RIVASandIntermediateBiasResearch -stage 1 requires a compressive "
+    if (stage != 0 && !initialStressSpecified) {
+        opserr << "WARNING RIVASandIntermediateBiasResearch -stage 1 or 2 requires a compressive "
                << "-initialStress; otherwise create at stage 0, establish "
                << "geostatic stress, and use updateMaterialStage" << endln;
         return 0;
@@ -202,7 +202,7 @@ RIVASandIntermediateBiasResearch::RIVASandIntermediateBiasResearch(
     setMaterialParameters(M, kd, h, m, zeta, eMax, eMin, Q, R, nG);
 
     if (!(mStressScale > 0.0) || !(mRho >= 0.0) ||
-        mFixedSubsteps < 1 || (mStage != 0 && mStage != 1) ||
+        mFixedSubsteps < 1 || (mStage < 0 || mStage > 2) ||
         !std::isfinite(mDr) || mDr < 0.0 || mDr > 1.0 ||
         !std::isfinite(mParameters.base.p_min) || !(mParameters.base.p_min > 0.0) ||
         !std::isfinite(mParameters.base.p_residual) ||
@@ -287,20 +287,26 @@ RIVASandIntermediateBiasResearch::activateFromCommittedStress(void)
 {
     tensor_t stress = stressToTensor(mCommittedStress);
     const double physicalPressure = riva_pressure(stress);
-    if (!(physicalPressure > mParameters.base.p_min)) {
+    const double conePressure = riva_cone_pressure(&mParameters.base, stress);
+    if (!(conePressure > mParameters.base.p_min)) {
         if (!mGeostaticAdmission ||
-            !std::isfinite(physicalPressure)) {
+            !std::isfinite(physicalPressure) ||
+            !std::isfinite(conePressure)) {
             opserr << "RIVASandIntermediateBiasResearch tag " << this->getTag()
-                   << " cannot enter stage 1: physical p' must exceed pMin"
+                   << " cannot enter a nonlinear stage: translated cone pressure "
+                   << "p'+pResidual must exceed pMin"
                    << endln;
             return -1;
         }
-        /* A no-tension cone cannot admit a slightly tensile stress left by
-         * the host gravity solve.  Project only its mean component to pMin;
-         * the following plastic-equilibration stage restores global balance. */
-        const double admittedPressure = std::nextafter(
+        /* Keep the physical skeleton stress unchanged whenever pResidual
+         * already places it inside the translated cone.  Only a state at or
+         * beyond that translated apex needs a mean-stress projection. */
+        const double admittedConePressure = std::nextafter(
             mParameters.base.p_min, std::numeric_limits<double>::infinity());
-        stress = riva_sub(riva_dev(stress), riva_iso(admittedPressure));
+        const double admittedPhysicalPressure = riva_physical_pressure(
+            &mParameters.base, admittedConePressure);
+        stress = riva_sub(riva_dev(stress),
+                          riva_iso(admittedPhysicalPressure));
     }
     riva_ib_state_t state = {};
     if (!riva_ib_initialize_material(&mParameters, &mMaterial, stress,
@@ -310,7 +316,25 @@ RIVASandIntermediateBiasResearch::activateFromCommittedStress(void)
         if (!riva_ib_admit_geostatic_state(
                 &mParameters, &mMaterial, &state, &admitted)) return -1;
     }
-    tensor_t reference = stress;
+    if (!mGeostaticAdmission || mStage == 2) {
+        tensor_t reference = stress;
+        reference.xy = reference.yz = reference.xz = 0.0;
+        if (!riva_ib_begin_dynamic_phase(
+                &mParameters, &mMaterial, &reference, &state)) return -1;
+    }
+    mCommittedState = state;
+    mTrialState = state;
+    tensorToStress(state.base.stress, mCommittedStress);
+    mTrialStress = mCommittedStress;
+    return 0;
+}
+
+int
+RIVASandIntermediateBiasResearch::beginDynamicFromCommittedState(void)
+{
+    if (!mCommittedState.base.initialized) return -1;
+    riva_ib_state_t state = mCommittedState;
+    tensor_t reference = state.base.stress;
     reference.xy = reference.yz = reference.xz = 0.0;
     if (!riva_ib_begin_dynamic_phase(
             &mParameters, &mMaterial, &reference, &state)) return -1;
@@ -367,7 +391,7 @@ RIVASandIntermediateBiasResearch::buildTangent(double bulk, double shear, Matrix
 void
 RIVASandIntermediateBiasResearch::updateTrialTangent(void)
 {
-    if (mStage == 1 && mTrialState.base.initialized) {
+    if (mStage != 0 && mTrialState.base.initialized) {
         double shear = 0.0;
         double bulk = 0.0;
         // Regularize only the tangent advertised to OpenSees here.  The
@@ -415,6 +439,17 @@ RIVASandIntermediateBiasResearch::setTrialStrain(const Vector &strain)
     if (!mCommittedState.base.initialized && activateFromCommittedStress() != 0)
         return -1;
     mTrialState = mCommittedState;
+    double incrementNorm2 = 0.0;
+    for (int i = 0; i < 6; ++i)
+        incrementNorm2 += increment(i)*increment(i);
+    if (incrementNorm2 == 0.0) {
+        // OpenSees may repeatedly query an unchanged trial strain while
+        // assembling an equilibrium iteration.  Do not advance a
+        // rate-independent material state for such host-only evaluations.
+        mTrialStress = mCommittedStress;
+        updateTrialTangent();
+        return 0;
+    }
     tensor_t stress = mTrialState.base.stress;
     riva_update_info_t information = {};
     if (!riva_ib_update_material(
@@ -519,7 +554,7 @@ RIVASandIntermediateBiasResearch::revertToStart(void)
     mCommittedState = riva_ib_state_t{};
     mTrialState = riva_ib_state_t{};
     mTangent = mInitialTangent;
-    if (mValid && mStage == 1 && activateFromCommittedStress() != 0)
+    if (mValid && mStage != 0 && activateFromCommittedStress() != 0)
         mValid = false;
     return mValid ? 0 : -1;
 }
@@ -720,7 +755,7 @@ RIVASandIntermediateBiasResearch::recvSelf(int commitTag, Channel &theChannel,
                      mCommittedState) != 0) return -1;
 
     mValid = mStressScale > 0.0 && mRho >= 0.0 && mFixedSubsteps >= 1 &&
-        (mStage == 0 || mStage == 1) && mDr >= 0.0 && mDr <= 1.0 &&
+        (mStage >= 0 && mStage <= 2) && mDr >= 0.0 && mDr <= 1.0 &&
         std::isfinite(mParameters.base.p_min) && mParameters.base.p_min > 0.0 &&
         std::isfinite(mParameters.base.p_residual) &&
         mParameters.base.p_residual >= 0.0 &&
@@ -836,11 +871,23 @@ RIVASandIntermediateBiasResearch::updateParameter(int responseID, Information &i
 {
     if (responseID == StageParameter) {
         const int requested = information.theInt;
-        if (requested != 0 && requested != 1) return -1;
+        if (requested < 0 || requested > 2) return -1;
         if (requested == mStage) return 0;
         if (requested == 1) {
+            if (mStage != 0) return -1;
             if (activateFromCommittedStress() != 0) return -1;
             mStage = 1;
+        } else if (requested == 2) {
+            if (mStage == 0) {
+                mStage = 2;
+                if (activateFromCommittedStress() != 0) {
+                    mStage = 0;
+                    return -1;
+                }
+            } else if (mStage == 1) {
+                if (beginDynamicFromCommittedState() != 0) return -1;
+                mStage = 2;
+            } else return -1;
         } else {
             mStage = 0;
             mCommittedState = riva_ib_state_t{};

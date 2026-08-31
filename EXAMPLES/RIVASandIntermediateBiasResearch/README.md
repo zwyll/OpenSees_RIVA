@@ -12,7 +12,7 @@ nDMaterial RIVASandIntermediateBiasResearch tag Dr M kd h m zeta \
     eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
     <-pMin value> <-tangentPMin value> <-pResidual value> \
-    <-geostaticAdmission> <-stage 0|1> \
+    <-geostaticAdmission> <-stage 0|1|2> \
     <-initialStress sxx syy szz sxy syz sxz>
 ```
 
@@ -33,15 +33,36 @@ nDMaterial RIVASandIntermediateBiasResearch 8001 \
 
 Use `-stressScale 1.0` when the OpenSees stress unit is kPa and
 `-stressScale 1000.0` when it is Pa. `-nSub` selects fixed constitutive
-substeps per host strain increment. As with production RIVA-Sand, use stage 0
-for gravity and activate all element copies with:
+substeps per host strain increment.
+
+Without `-geostaticAdmission`, the conventional two-stage sequence is
+unchanged: use stage 0 for gravity and activate the nonlinear cyclic material
+with:
 
 ```tcl
 updateMaterialStage -material $matTag -stage 1
 ```
 
 Add `-geostaticAdmission` only when the gravity workflow intentionally admits
-a compressive geostatic state outside the cyclic bounding surface.
+a compressive geostatic state outside the cyclic bounding surface. In that
+workflow, three stages keep geostatic equilibration separate from the
+calibrated cyclic research mechanisms:
+
+```tcl
+# Stage 0: elastic gravity loading
+updateMaterialStage -material $matTag -stage 1
+# Stage 1: nonlinear geostatic admission and drained re-equilibration
+# ...complete the gravity settle, permeability switch, and quiet hold...
+updateMaterialStage -material $matTag -stage 2
+# Stage 2: mapping/backstress and phase-transformation mechanisms active
+# ...begin the dynamic analysis...
+```
+
+Stage 1 retains the converged skeleton stresses and uses the non-expansive
+geostatic-admission rule until each over-bound stress point re-enters the
+ordinary cone. Stage 2 is a stress-preserving state transition; it must be
+issued before dynamic loading when `-geostaticAdmission` is enabled. This
+staging change introduces no new calibrated material parameter.
 
 ## Tests
 

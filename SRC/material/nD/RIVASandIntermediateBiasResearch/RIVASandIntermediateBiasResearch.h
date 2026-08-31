@@ -73,6 +73,7 @@ private:
                                double zeta, double eMax, double eMin,
                                double Q, double R, double nG);
     int activateFromCommittedStress(void);
+    int beginDynamicFromCommittedState(void);
     void buildTangent(double bulk, double shear, Matrix &matrix) const;
     void updateTrialTangent(void);
     double initialVoidRatio(void) const;

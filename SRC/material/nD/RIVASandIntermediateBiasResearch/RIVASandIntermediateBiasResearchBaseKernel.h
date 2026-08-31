@@ -654,7 +654,7 @@ RIVA_IB_BASE_HD static inline int riva_admit_geostatic_state(
 {
     if (admitted_out) *admitted_out=0;
     if (!state || !state->initialized ||
-        !(riva_pressure(state->stress)>p->p_min)) return 0;
+        !(riva_cone_pressure(p,state->stress)>p->p_min)) return 0;
     double mb,md,xi;
     riva_surfaces(p,material,state->pressure_anchor,state->void_ratio,
                   &mb,&md,&xi);
@@ -675,7 +675,7 @@ RIVA_IB_BASE_HD static inline int riva_initialize_geostatic_material(
     tensor_t stress,double void_ratio,tensor_t reference_stress,
     riva_state_t *state,int32_t *admitted_out)
 {
-    if (!(riva_pressure(stress)>p->p_min) ||
+    if (!(riva_cone_pressure(p,stress)>p->p_min) ||
         !riva_initialize_material(p,material,stress,void_ratio,state) ||
         !riva_admit_geostatic_state(p,material,state,admitted_out) ||
         !riva_begin_dynamic_phase(p,reference_stress,state)) return 0;
