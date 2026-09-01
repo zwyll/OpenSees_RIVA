@@ -26,7 +26,7 @@
 
 #define RIVA_IB_PARAMETER_COUNT 248
 #define RIVA_IB_LOGICAL_STATE_COUNT 62
-#define RIVA_IB_STATE_VALUE_COUNT 137
+#define RIVA_IB_STATE_VALUE_COUNT 138
 #define RIVA_IB_KERNEL_REVISION 2u
 #define RIVA_IB_PARAMETER_SHA256 \
     "85bd23d467e3e5f29a3b44da9903606a9dee95d5f16d9f25f16e1b1611b34397"
@@ -1317,6 +1317,31 @@ RIVA_IB_HD static inline int riva_ib_begin_dynamic_phase(
     s->base.static_bias_index=riva_norm(bias)/anchor;
     s->base.cyclic_direction=riva_zero();
     s->base.cyclic_phase_active=1;
+    /* Round-A memory seeding (parameter-free).  A cold start enters the
+     * earthquake with a virgin cyclic state; the pre-reversal special
+     * branches then fire on the very first half-cycle and the early flow is
+     * measurably stronger than the settled-history reference (mid-slope ux
+     * x1.9 on RPI_A).  Seed the state as if a settle's micro-cycle history
+     * had been lived through -- values follow the MEASURED post-settle state
+     * of the cyclic-alive gravity flow (settle_state dump: ~11 micro
+     * reversals, micro amplitude, direction set, gate closed):
+     *   cyclic_direction        the static-bias direction (the only
+     *                           direction statics can justify);
+     *   last_reversal_deviator  the current deviator, so the first genuine
+     *                           reversal measures a true excursion instead
+     *                           of one from a stale stage-0 anchor;
+     *   amplitude_reversals     bias_reversible_volume_buildup_reversals
+     *                           (existing parameter, its own definition of
+     *                           "history complete"), which retires the
+     *                           amplitude_reversals<1 pre-reversal branches.
+     * cyclic_amplitude stays 0 (first real reversal sets it) and
+     * ep_half_last stays 0 (volume gate closed until a genuine plastic
+     * half-cycle) -- both exactly as in the settled reference. */
+    if (riva_norm(bias)>1.0e-12)
+        s->base.cyclic_direction=riva_scale(bias,1.0/riva_norm(bias));
+    s->base.last_reversal_deviator=current;
+    s->base.amplitude_reversals=(int64_t)(
+        p->base.bias_reversible_volume_buildup_reversals+0.5);
     s->base.bias_ratchet_strain=0.0;
     s->base.bias_reversible_volume=0.0;
     s->base.eps_v_total=s->base.physical_eps_v_total;
@@ -1571,12 +1596,21 @@ RIVA_IB_HD static inline riva_ib_state_t riva_ib_base_backbone(
     if (old->base.geostatic_admitted &&
         alpha_norm<=riva_ib_mul_rn(calibrated_limit,1.0+1.0e-10)) {
         /* Re-entry is the hand-off point from the non-expansive geostatic
-         * radial rule to the research mapping surface.  Recenter every
-         * directional mapping memory at the accepted in-cone state so the
-         * hand-off itself cannot create a plastic impulse. */
+         * radial rule to the research mapping surface.  Recenter the
+         * directional mapping memories at the accepted in-cone state so the
+         * hand-off itself cannot create a plastic impulse.
+         *
+         * Round C (measured on the cyclic-alive settle reference,
+         * settle_state dump: alpha0 ~ 0.73 alpha, alpha01 ~ 0.66 alpha,
+         * beta = 5.3): the HARDENING ORIGIN offset that the settle
+         * establishes is the one nonzero memory the settled flow carries --
+         * every mapping quantity is zero there too.  Recentering
+         * alpha0/alpha01 onto alpha collapses beta to its floor and makes
+         * the first loading branch anomalously soft (the measured cold-start
+         * overshoot).  PRESERVE the committed alpha0/alpha01 from the
+         * stage-1 settle instead; they are already consistent with the
+         * admitted stress, so the hand-off still cannot create an impulse. */
         state.base.geostatic_admitted=0;
-        state.base.alpha0=alpha;
-        state.base.alpha01=alpha;
         state.mapping_anchor=alpha;
         state.mapping_backstress=riva_zero();
         state.mapping_directional_fabric=riva_zero();

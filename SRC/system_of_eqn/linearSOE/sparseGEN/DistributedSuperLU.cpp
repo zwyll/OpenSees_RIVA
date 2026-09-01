@@ -29,6 +29,60 @@
 //
 // What: "@(#) DistributedSuperLU.h, revA"
 
+#ifdef _MSC_VER
+// LOCAL WINDOWS BUILD WORKAROUND (do not upstream without discussion):
+// the bundled SuperLU_DIST 4.3 C API does not compile under MSVC (file-scope
+// 'stat' collides with ::stat; prototype strictness on PStatInit /
+// pdgssvx_ABglobal). The parallel solver used by this project is Mumps, so the
+// distributed-SuperLU solver is stubbed out on MSVC: constructing it succeeds
+// but solve()/setSize() report an error and fail cleanly.
+#include <DistributedSuperLU.h>
+#include <Channel.h>
+#include <FEM_ObjectBroker.h>
+#include <OPS_Globals.h>
+
+DistributedSuperLU::DistributedSuperLU(int npR, int npC)
+  :SparseGenColLinSolver(SOLVER_TAGS_DistributedSuperLU),
+   gridInit(false), npRow(npR), npCol(npC),
+   processID(0), numChannels(0), theChannels(0), b(0), rowA(0) {}
+
+DistributedSuperLU::DistributedSuperLU()
+  :SparseGenColLinSolver(SOLVER_TAGS_DistributedSuperLU),
+   gridInit(false), npRow(0), npCol(0),
+   processID(0), numChannels(0), theChannels(0), b(0), rowA(0) {}
+
+DistributedSuperLU::~DistributedSuperLU() {}
+
+int DistributedSuperLU::solve(void)
+{
+  opserr << "DistributedSuperLU::solve() - not available in this MSVC build "
+         << "(SuperLU_DIST stubbed; use system Mumps)\n";
+  return -1;
+}
+
+int DistributedSuperLU::setSize(void)
+{
+  opserr << "DistributedSuperLU::setSize() - not available in this MSVC build "
+         << "(SuperLU_DIST stubbed; use system Mumps)\n";
+  return -1;
+}
+
+int DistributedSuperLU::setProcessID(int dTag) { processID = dTag; return 0; }
+
+int DistributedSuperLU::setChannels(int nChannels, Channel **theC)
+{
+  numChannels = nChannels;
+  theChannels = theC;
+  return 0;
+}
+
+int DistributedSuperLU::sendSelf(int cTag, Channel &theChannel) { return 0; }
+
+int DistributedSuperLU::recvSelf(int cTag, Channel &theChannel,
+                                 FEM_ObjectBroker &theBroker) { return 0; }
+
+#else
+
 #include <DistributedSuperLU.h>
 #include <SparseGenColLinSOE.h>
 #include <f2c.h>
@@ -424,3 +478,5 @@ DistributedSuperLU::recvSelf(int cTag,
 
 
 
+
+#endif  // _MSC_VER stub guard

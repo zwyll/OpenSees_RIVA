@@ -64,12 +64,9 @@ MumpsSolver::MumpsSolver(int ICNTL7, int ICNTL14)
   id.job=-1; 
   id.par=1; 
 
-#ifdef _OPENMPI
-  //  id.comm_fortran=-987654;
-  id.comm_fortran=0;
-#else
+  // LOCAL WINDOWS/INTEL-MPI BUILD FIX (see MumpsParallelSolver.cpp): the
+  // _OPENMPI branch's comm_fortran = 0 is invalid under Intel MPI.
   id.comm_fortran=MPI_Comm_c2f(MPI_COMM_WORLD);
-#endif
 
   id.ICNTL(14) = ICNTL14;
   id.ICNTL(7)=ICNTL7;;
