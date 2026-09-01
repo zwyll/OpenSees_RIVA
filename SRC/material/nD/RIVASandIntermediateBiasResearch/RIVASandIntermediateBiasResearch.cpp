@@ -21,7 +21,7 @@ using namespace riva_ib_native;
 
 namespace {
 
-const int RIVASerializedSize = 179;
+const int RIVASerializedSize = 180;
 
 bool finiteVector(const Vector &value)
 {
@@ -622,13 +622,13 @@ RIVASandIntermediateBiasResearch::sendSelf(int commitTag, Channel &theChannel)
     riva_ib_state_values(&mCommittedState, stateValues);
     for (int i = 0; i < RIVA_IB_STATE_VALUE_COUNT; ++i)
         data(35+i) = stateValues[i];
-    data(172) = mCommittedState.base.initialized;
-    data(173) = mParameters.base.p_min;
-    data(174) = mTangentPressureFloor;
-    data(175) = mParameters.base.p_residual;
-    data(176) = mGeostaticAdmission ? 1.0 : 0.0;
-    data(177) = mCommittedState.base.geostatic_admitted;
-    data(178) = RIVA_IB_KERNEL_REVISION;
+    data(173) = mCommittedState.base.initialized;
+    data(174) = mParameters.base.p_min;
+    data(175) = mTangentPressureFloor;
+    data(176) = mParameters.base.p_residual;
+    data(177) = mGeostaticAdmission ? 1.0 : 0.0;
+    data(178) = mCommittedState.base.geostatic_admitted;
+    data(179) = RIVA_IB_KERNEL_REVISION;
 
     if (theChannel.sendVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASandIntermediateBiasResearch::sendSelf failed for tag "
@@ -658,6 +658,7 @@ RIVASandIntermediateBiasResearch::restoreState(
     state.base.D=values[i++]; state.base.beta=values[i++];
     state.base.lambda_total=values[i++];
     state.base.ep_eq_since_reversal=values[i++];
+    state.base.ep_half_last=values[i++];
     state.base.void_ratio=values[i++];
     state.base.reversals=(int64_t)std::llround(values[i++]);
     state.base.pressure_floor_hits=(int64_t)std::llround(values[i++]);
@@ -725,9 +726,9 @@ RIVASandIntermediateBiasResearch::recvSelf(int commitTag, Channel &theChannel,
         opserr << "RIVASandIntermediateBiasResearch::recvSelf failed" << endln;
         return -1;
     }
-    if ((uint32_t)std::llround(data(178)) != RIVA_IB_KERNEL_REVISION) {
+    if ((uint32_t)std::llround(data(179)) != RIVA_IB_KERNEL_REVISION) {
         opserr << "RIVASandIntermediateBiasResearch::recvSelf incompatible "
-               << "kernel revision " << data(178) << endln;
+               << "kernel revision " << data(179) << endln;
         return -1;
     }
     this->setTag((int)data(0));
@@ -739,10 +740,10 @@ RIVASandIntermediateBiasResearch::recvSelf(int commitTag, Channel &theChannel,
     mInitialStage = (int)std::llround(data(6));
     for (int i = 0; i < 6; ++i) mInitialStress(i) = data(7+i);
     setReferenceParameters();
-    mParameters.base.p_min = data(173);
-    mParameters.base.p_residual = data(175);
-    mGeostaticAdmission = std::llround(data(176)) != 0;
-    mTangentPressureFloor = riva_max(data(174), mParameters.base.p_min);
+    mParameters.base.p_min = data(174);
+    mParameters.base.p_residual = data(176);
+    mGeostaticAdmission = std::llround(data(177)) != 0;
+    mTangentPressureFloor = riva_max(data(175), mParameters.base.p_min);
     setMaterialParameters(data(13), data(14), data(15), data(16), data(17),
                           data(18), data(19), data(20), data(21), data(22));
     for (int i = 0; i < 6; ++i) mCommittedStrain(i) = data(23+i);
@@ -750,8 +751,8 @@ RIVASandIntermediateBiasResearch::recvSelf(int commitTag, Channel &theChannel,
     double stateValues[RIVA_IB_STATE_VALUE_COUNT];
     for (int i = 0; i < RIVA_IB_STATE_VALUE_COUNT; ++i)
         stateValues[i] = data(35+i);
-    if (restoreState(stateValues, (int)std::llround(data(172)),
-                     (int)std::llround(data(177)),
+    if (restoreState(stateValues, (int)std::llround(data(173)),
+                     (int)std::llround(data(178)),
                      mCommittedState) != 0) return -1;
 
     mValid = mStressScale > 0.0 && mRho >= 0.0 && mFixedSubsteps >= 1 &&
