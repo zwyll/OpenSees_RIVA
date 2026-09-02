@@ -563,9 +563,15 @@ class RIVASandPhaseTransformationModel(RIVASandModel):
         """Hook for research successors; unity preserves this checkpoint."""
         return 1.0
 
+    def inherited_bias_reversible_volume_target(
+        self, state: RIVASandState
+    ) -> float:
+        """Hook for successors that regulate only the inherited bias wave."""
+        return float(super().bias_reversible_volume_target(state))
+
     def bias_reversible_volume_target(self, state: RIVASandState) -> float:
         """Retain the frozen wave outside the dense transformation branch."""
-        target = super().bias_reversible_volume_target(state)
+        target = self.inherited_bias_reversible_volume_target(state)
         if not self.parameters.phase_transformation_enabled:
             return target
         target *= 1.0 - self.phase_volume_replacement_gate(state)
