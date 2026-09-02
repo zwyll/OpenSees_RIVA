@@ -69,8 +69,8 @@ updateMaterialStage -material $matTag -stage 1
 set pressureAnchors {}
 foreach eleTag {1 2} {
     set initializedState [eleResponse $eleTag state]
-    if {[llength $initializedState] != 137} {
-        error "RIVASandIntermediateBiasResearch element $eleTag state response has [llength $initializedState] values, expected 137"
+    if {[llength $initializedState] != 138} {
+        error "RIVASandIntermediateBiasResearch element $eleTag state response has [llength $initializedState] values, expected 138"
     }
     set pressureAnchor [lindex $initializedState 49]
     if {$pressureAnchor <= 0.0} {

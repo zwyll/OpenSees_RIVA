@@ -70,6 +70,7 @@ class RIVASandIntermediateBiasFlowParameters(
     intermediate_high_bias_phase_relaxation_multiplier: float = 0.25
     intermediate_high_bias_phase_activation_reversals: float = 6.0
     intermediate_high_bias_pre_reversal_phase_scale: float = 1.50
+    bias_reversible_volume_ep_ref: float = 1.5e-5
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -125,6 +126,8 @@ class RIVASandIntermediateBiasFlowParameters(
             raise ValueError("high-bias phase activation reversals must be positive")
         if self.intermediate_high_bias_pre_reversal_phase_scale < 0.0:
             raise ValueError("pre-reversal phase scale must be nonnegative")
+        if self.bias_reversible_volume_ep_ref <= 0.0:
+            raise ValueError("plastic-activity gate reference must be positive")
 
 
 @dataclass
@@ -134,6 +137,7 @@ class RIVASandIntermediateBiasFlowState(RIVASandMappingBackstressState):
     initial_relative_density_value: float = -1.0
     intermediate_low_gate_value: float = 0.0
     intermediate_high_gate_base: float = 0.0
+    ep_half_last: float = 0.0
 
     def copy(self) -> "RIVASandIntermediateBiasFlowState":
         values: dict[str, object] = {}
@@ -173,6 +177,34 @@ class RIVASandIntermediateBiasFlowModel(RIVASandMappingBackstressModel):
             super().initial_relative_density(self.state)
         )
         return self.state.copy()
+
+    def _backbone_forward_euler(
+        self,
+        old: RIVASandIntermediateBiasFlowState,
+        deps: Tensor,
+        *,
+        force_reversal: bool,
+        allow_legacy_reversal: bool,
+    ) -> RIVASandIntermediateBiasFlowState:
+        state = super()._backbone_forward_euler(
+            old,
+            deps,
+            force_reversal=force_reversal,
+            allow_legacy_reversal=allow_legacy_reversal,
+        )
+        if state.reversals > old.reversals:
+            state.ep_half_last = float(old.ep_eq_since_reversal)
+        return state
+
+    def inherited_bias_reversible_volume_target(
+        self, state: RIVASandState
+    ) -> float:
+        target = super().inherited_bias_reversible_volume_target(state)
+        ep_half_last = float(getattr(state, "ep_half_last", 0.0))
+        gate = self._smoothstep(
+            ep_half_last / self.parameters.bias_reversible_volume_ep_ref
+        )
+        return float(target * gate)
 
     def initial_relative_density(self, state: RIVASandState) -> float:
         if isinstance(state, RIVASandIntermediateBiasFlowState):

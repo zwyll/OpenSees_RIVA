@@ -2,8 +2,15 @@
 
 This directory exercises the separately named OpenSees research material
 `RIVASandIntermediateBiasResearch`. It is the native implementation of the
-constitutive successor developed on `research/rivasand-intermediate-bias-flow`.
+constitutive successor developed on
+`research/rivasand-intermediate-bias-plastic-gate`.
 It does not replace or modify the frozen production `RIVASand` material.
+
+This branch appends a completed-half-cycle plastic-activity memory to the
+research state. It gates only the inherited reversible bias wave, and dynamic
+activation does not preload a fictitious reversal count. This is kernel
+restart revision 3 and is intentionally incompatible with revision-2 restart
+files.
 
 ## Command
 
@@ -74,8 +81,20 @@ After building OpenSees, run:
 
 ./build-riva-ib/OpenSees \
   EXAMPLES/RIVASandIntermediateBiasResearch/RIVASandIntermediateBiasResearch_material_point.tcl
+
+./build-riva-ib/OpenSees \
+  EXAMPLES/RIVASandIntermediateBiasResearch/tests/RIVASandIntermediateBiasResearch_restart.tcl
 ```
 
 The standalone replay in `tests/RIVASandIntermediateBiasResearchNativeReplay.cpp`
 compares the allocation-free native kernel against the private six-history
 handoff oracle without using Python at runtime.
+
+The standalone state-contract test can be built without OpenSees libraries:
+
+```sh
+c++ -std=c++17 -O2 \
+  EXAMPLES/RIVASandIntermediateBiasResearch/tests/RIVASandIntermediateBiasResearchKernelStateTest.cpp \
+  -o RIVASandIntermediateBiasResearchKernelStateTest
+./RIVASandIntermediateBiasResearchKernelStateTest
+```
