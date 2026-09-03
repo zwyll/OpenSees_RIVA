@@ -62,6 +62,9 @@ public:
 
     bool isValid(void) const;
     void setReversalLatch(bool on) { mReversalLatch = on; }
+    void setFieldBiasMeanCorrection(bool on) {
+        mParameters.field_bias_mean_correction_enabled = on ? 1 : 0;
+    }
 
 private:
     enum {

@@ -8,9 +8,9 @@ It does not replace or modify the frozen production `RIVASand` material.
 
 This branch appends a completed-half-cycle plastic-activity memory to the
 research state. It gates only the inherited reversible bias wave, and dynamic
-activation does not preload a fictitious reversal count. This is kernel
-restart revision 3 and is intentionally incompatible with revision-2 restart
-files.
+activation does not preload a fictitious reversal count. The optional field
+bias-volume correction described below makes this kernel restart revision 4;
+it is intentionally incompatible with revision-3 restart files.
 
 ## Command
 
@@ -19,7 +19,7 @@ nDMaterial RIVASandIntermediateBiasResearch tag Dr M kd h m zeta \
     eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
     <-pMin value> <-tangentPMin value> <-pResidual value> \
-    <-geostaticAdmission> <-reversalLatch> <-stage 0|1|2> \
+    <-geostaticAdmission> <-reversalLatch> <-fieldBiasVolume> <-stage 0|1|2> \
     <-initialStress sxx syy szz sxy syz sxz>
 ```
 
@@ -52,6 +52,36 @@ accepted constitutive histories remain unchanged. Because the decision is
 tied to the first accepted Newton trial, timestep and iteration-path
 objectivity must still be demonstrated for a complete boundary-value problem
 before treating it as a production default.
+
+`-fieldBiasVolume` is an opt-in constitutive research correction for sloping
+ground boundary-value analyses. It continuously removes only the contractive
+part of the mean component of the inherited reversible biased-volume target
+as the state enters the low-static-bias, high-confinement field window. A
+positive, dilative mean shift is never reduced. The correction is bounded to
+the inherited contractive mean magnitude, so it cannot reverse that
+component. It leaves the oscillatory pressure wave, phase transformation,
+shear ratchet, stress mapping, and plastic flow unchanged. The smooth windows
+are internally fixed at static-
+bias index 0.20--0.28 and pressure-anchor ratio 1.00--1.25 relative to the
+40-kPa mean-transition pressure. A second smooth limiter fades the correction
+out as the current effective-pressure ratio falls from 0.35 to 0.10. This
+prevents the correction from driving an already-liquefied point past the cone
+apex while allowing it to oppose subsequent pressure rebuilding. Its activity
+grows monotonically with plastic multiplier on a fixed 0.0001 scale. Activity
+is committed only after an accepted host increment and is held fixed through
+all constitutive substeps and repeated Newton trials from that committed
+state. This is a research option, not part of the production `RIVASand`
+calibration.
+
+For an explicit research rerun of the three-stage sloping-ground workflow, use:
+
+```tcl
+lappend matCmd -geostaticAdmission -reversalLatch -fieldBiasVolume
+```
+
+Do not combine `-fieldBiasVolume` with the diagnostic `-noBiasVolume` switch
+from the external Phase-3 package. The new option retains the calibrated
+oscillatory pressure wave instead of disabling the whole mechanism.
 
 Without `-geostaticAdmission`, the conventional two-stage sequence is
 unchanged: use stage 0 for gravity and activate the nonlinear cyclic material
@@ -101,11 +131,12 @@ The standalone replay in `tests/RIVASandIntermediateBiasResearchNativeReplay.cpp
 compares the allocation-free native kernel against the private six-history
 handoff oracle without using Python at runtime.
 
-The restart test enables `-reversalLatch` and verifies that both an element
-material copy and a material reconstructed through `sendSelf`/`recvSelf`
-retain the setting. The standalone state-contract test additionally checks
-that automatic detection is unchanged and that a forced reversal is applied
-exactly once across fixed constitutive substeps.
+The restart test enables `-reversalLatch` and `-fieldBiasVolume` and verifies
+that both an element material copy and a material reconstructed through
+`sendSelf`/`recvSelf` retain both settings. The standalone state-contract test
+additionally checks that automatic detection is unchanged, that a forced
+reversal is applied exactly once across fixed constitutive substeps, and that
+the field correction removes only the bounded mean component.
 
 The standalone state-contract test can be built without OpenSees libraries:
 

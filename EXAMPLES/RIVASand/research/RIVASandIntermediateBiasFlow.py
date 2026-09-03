@@ -71,6 +71,14 @@ class RIVASandIntermediateBiasFlowParameters(
     intermediate_high_bias_phase_activation_reversals: float = 6.0
     intermediate_high_bias_pre_reversal_phase_scale: float = 1.50
     bias_reversible_volume_ep_ref: float = 1.5e-5
+    field_bias_mean_correction_enabled: bool = False
+    field_bias_mean_bias_full: float = 0.20
+    field_bias_mean_bias_off: float = 0.28
+    field_bias_mean_pressure_onset_ratio: float = 1.00
+    field_bias_mean_pressure_full_ratio: float = 1.25
+    field_bias_mean_effective_ratio_off: float = 0.10
+    field_bias_mean_effective_ratio_full: float = 0.35
+    field_bias_mean_plastic_scale: float = 0.0001
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -128,6 +136,23 @@ class RIVASandIntermediateBiasFlowParameters(
             raise ValueError("pre-reversal phase scale must be nonnegative")
         if self.bias_reversible_volume_ep_ref <= 0.0:
             raise ValueError("plastic-activity gate reference must be positive")
+        if not (
+            0.0 <= self.field_bias_mean_bias_full
+            < self.field_bias_mean_bias_off
+        ):
+            raise ValueError("invalid field-bias mean correction interval")
+        if not (
+            0.0 <= self.field_bias_mean_pressure_onset_ratio
+            < self.field_bias_mean_pressure_full_ratio
+        ):
+            raise ValueError("invalid field-pressure mean correction interval")
+        if not (
+            0.0 <= self.field_bias_mean_effective_ratio_off
+            < self.field_bias_mean_effective_ratio_full <= 1.0
+        ):
+            raise ValueError("invalid effective-pressure correction interval")
+        if self.field_bias_mean_plastic_scale <= 0.0:
+            raise ValueError("field-bias plastic scale must be positive")
 
 
 @dataclass
@@ -138,6 +163,7 @@ class RIVASandIntermediateBiasFlowState(RIVASandMappingBackstressState):
     intermediate_low_gate_value: float = 0.0
     intermediate_high_gate_base: float = 0.0
     ep_half_last: float = 0.0
+    field_bias_mean_activity: float = 0.0
 
     def copy(self) -> "RIVASandIntermediateBiasFlowState":
         values: dict[str, object] = {}
@@ -201,10 +227,69 @@ class RIVASandIntermediateBiasFlowModel(RIVASandMappingBackstressModel):
     ) -> float:
         target = super().inherited_bias_reversible_volume_target(state)
         ep_half_last = float(getattr(state, "ep_half_last", 0.0))
-        gate = self._smoothstep(
+        plastic_gate = self._smoothstep(
             ep_half_last / self.parameters.bias_reversible_volume_ep_ref
         )
-        return float(target * gate)
+        target *= plastic_gate
+        cfg = self.parameters
+        if not cfg.field_bias_mean_correction_enabled:
+            return float(target)
+        bias = self.projected_bias(state)
+        fixed_bias = state.static_bias_index
+        bias_gate = 1.0 - self._smoothstep(
+            (fixed_bias - cfg.field_bias_mean_bias_full)
+            / (cfg.field_bias_mean_bias_off - cfg.field_bias_mean_bias_full)
+        )
+        pressure_ratio = (
+            state.pressure_anchor
+            / cfg.bias_reversible_mean_transition_pressure
+        )
+        pressure_gate = self._smoothstep(
+            (pressure_ratio - cfg.field_bias_mean_pressure_onset_ratio)
+            / (
+                cfg.field_bias_mean_pressure_full_ratio
+                - cfg.field_bias_mean_pressure_onset_ratio
+            )
+        )
+        _, pressure, _ = invariants(state.stress)
+        effective_ratio = (
+            pressure + cfg.p_residual
+        ) / max(state.pressure_anchor, cfg.p_min)
+        effective_gate = self._smoothstep(
+            (effective_ratio - cfg.field_bias_mean_effective_ratio_off)
+            / (
+                cfg.field_bias_mean_effective_ratio_full
+                - cfg.field_bias_mean_effective_ratio_off
+            )
+        )
+        plastic_activity = float(np.clip(
+            getattr(state, "field_bias_mean_activity", 0.0), 0.0, 1.0
+        ))
+        correction_gate = float(np.clip(
+            bias_gate * pressure_gate * effective_gate * plastic_activity,
+            0.0,
+            1.0,
+        ))
+        if (
+            correction_gate <= 0.0
+            or state.amplitude_reversals < 1
+            or bias <= 1.0e-14
+        ):
+            return float(target)
+        mean_buildup = 1.0 - np.exp(
+            -state.amplitude_reversals
+            / cfg.bias_reversible_mean_buildup_reversals
+        )
+        mean_shift = (
+            cfg.bias_reversible_mean_scale
+            * (cfg.bias_reversible_mean_transition_pressure - state.pressure_anchor)
+            / cfg.bias_reference_pressure
+            * (bias / cfg.bias_reversible_volume_reference_bias)
+            * mean_buildup
+        )
+        if mean_shift >= 0.0:
+            return float(target)
+        return float(target - mean_shift * plastic_gate * correction_gate)
 
     def initial_relative_density(self, state: RIVASandState) -> float:
         if isinstance(state, RIVASandIntermediateBiasFlowState):
@@ -296,6 +381,7 @@ class RIVASandIntermediateBiasFlowModel(RIVASandMappingBackstressModel):
         self.state.phase_potential_anchor = float(
             self.state.phase_potential_anchor * anchor_ratio
         )
+        self.state.field_bias_mean_activity = 0.0
         return self.state.copy()
 
     def intermediate_bias_flow_gate(self, state: RIVASandState) -> float:
@@ -554,6 +640,30 @@ class RIVASandIntermediateBiasFlowModel(RIVASandMappingBackstressModel):
         shear *= self.intermediate_branch_multiplier(state)
         return float(shear), float(bulk)
 
+    def advance_fixed(
+        self,
+        initial: RIVASandIntermediateBiasFlowState,
+        deps: Tensor,
+        nsub: int = 1,
+    ):
+        """Advance with field activity fixed throughout the host increment."""
+        state, info = super().advance_fixed(initial, deps, nsub)
+        if not isinstance(state, RIVASandIntermediateBiasFlowState):
+            raise TypeError("intermediate biased-flow update lost its state type")
+        cfg = self.parameters
+        if cfg.field_bias_mean_correction_enabled and initial.cyclic_phase_active:
+            delta_lambda = max(state.lambda_total - initial.lambda_total, 0.0)
+            relaxation = 1.0 - np.exp(
+                -delta_lambda / cfg.field_bias_mean_plastic_scale
+            )
+            state.field_bias_mean_activity = float(np.clip(
+                initial.field_bias_mean_activity
+                + (1.0 - initial.field_bias_mean_activity) * relaxation,
+                0.0,
+                1.0,
+            ))
+        return state, info
+
     def dss_history_values(
         self, state: RIVASandState | None = None
     ) -> dict[str, float]:
@@ -585,6 +695,9 @@ class RIVASandIntermediateBiasFlowModel(RIVASandMappingBackstressModel):
             ),
             intermediate_pre_reversal_cyclic_excursion=(
                 self._pre_reversal_cyclic_excursion(current)
+            ),
+            field_bias_mean_activity=float(
+                getattr(current, "field_bias_mean_activity", 0.0)
             ),
         )
         return values

@@ -72,8 +72,8 @@ static bool driveCycles(const riva_ib_parameters_t &parameters,
 
 int main()
 {
-    if (RIVA_IB_PARAMETER_COUNT != 249 || RIVA_IB_LOGICAL_STATE_COUNT != 63 ||
-        RIVA_IB_STATE_VALUE_COUNT != 138 || RIVA_IB_KERNEL_REVISION != 3u) {
+    if (RIVA_IB_PARAMETER_COUNT != 257 || RIVA_IB_LOGICAL_STATE_COUNT != 64 ||
+        RIVA_IB_STATE_VALUE_COUNT != 139 || RIVA_IB_KERNEL_REVISION != 4u) {
         std::cerr << "research kernel contract constants are inconsistent\n";
         return 1;
     }
@@ -81,6 +81,63 @@ int main()
     const riva_material_parameters_t material =
         riva_reference_material_parameters(&parameters.base);
     if (!(parameters.bias_reversible_volume_ep_ref > 0.0)) return 1;
+
+    /* The field correction is bounded and acts on only the inherited mean
+     * term in its low-bias/high-confinement window. It is disabled by
+     * default and therefore cannot alter the accepted research histories. */
+    riva_ib_state_t field = biasedState(parameters, material, 0.601, 4.0);
+    field.base.cyclic_direction = {0, 0, 0, 0, 0, 1};
+    field.base.static_bias_tensor = {
+        0, 0, 0, 0, 0, 0.19/std::sqrt(2.0)};
+    field.base.static_bias_index = 0.19;
+    field.base.pressure_anchor =
+        parameters.base.bias_reversible_mean_transition_pressure*1.25;
+    field.base.amplitude_reversals = 6;
+    field.base.cyclic_amplitude = 0.2;
+    field.ep_half_last = 2.0*parameters.bias_reversible_volume_ep_ref;
+    field.phase_accumulation_lambda_anchor = field.base.lambda_total;
+    riva_ib_parameters_t fieldOff = parameters;
+    fieldOff.phase_transformation_enabled = 0;
+    riva_ib_parameters_t fieldOn = fieldOff;
+    fieldOn.field_bias_mean_correction_enabled = 1;
+    const double offTarget = riva_ib_bias_volume_target(&fieldOff, &field, 0);
+    const double onTarget = riva_ib_bias_volume_target(&fieldOn, &field, 0);
+    if (onTarget != offTarget) {
+        std::cerr << "field correction did not start continuously from zero\n";
+        return 1;
+    }
+    field.field_bias_mean_activity = 1.0;
+    const double activeTarget = riva_ib_bias_volume_target(&fieldOn, &field, 0);
+    const double fieldBias = riva_ib_projected_bias(&field);
+    const double meanBuildup = 1.0-std::exp(-6.0/
+        parameters.base.bias_reversible_mean_buildup_reversals);
+    const double expectedMean = parameters.base.bias_reversible_mean_scale*
+        (parameters.base.bias_reversible_mean_transition_pressure-
+         field.base.pressure_anchor)/parameters.base.bias_reference_pressure*
+        (fieldBias/parameters.base.bias_reversible_volume_reference_bias)*
+        meanBuildup;
+    if (std::fabs((offTarget-activeTarget)-expectedMean) > 1.0e-16 ||
+        std::fabs(offTarget-activeTarget) > std::fabs(expectedMean)+1.0e-16) {
+        std::cerr << "field correction exceeded its bounded mean adjustment\n";
+        return 1;
+    }
+    riva_ib_state_t dilativeField = field;
+    dilativeField.base.pressure_anchor =
+        parameters.base.bias_reversible_mean_transition_pressure*0.65;
+    if (riva_ib_bias_volume_target(&fieldOff, &dilativeField, 0) !=
+        riva_ib_bias_volume_target(&fieldOn, &dilativeField, 0)) {
+        std::cerr << "field correction suppressed a helpful dilative mean shift\n";
+        return 1;
+    }
+    riva_ib_state_t calibrated = field;
+    calibrated.base.static_bias_tensor = {
+        0, 0, 0, 0, 0, 0.29/std::sqrt(2.0)};
+    calibrated.base.static_bias_index = 0.29;
+    if (riva_ib_bias_volume_target(&fieldOff, &calibrated, 0) !=
+        riva_ib_bias_volume_target(&fieldOn, &calibrated, 0)) {
+        std::cerr << "field correction leaked outside its low-bias window\n";
+        return 1;
+    }
 
     /* Isolate the inherited bias wave and verify that a weakly plastic
      * microcycle cannot create a finite pressure-wave target. */
@@ -123,8 +180,21 @@ int main()
     double values[RIVA_IB_STATE_VALUE_COUNT] = {};
     if (riva_ib_state_values(&mapping, values) != RIVA_IB_STATE_VALUE_COUNT ||
         values[49] != mapping.base.pressure_anchor ||
-        values[RIVA_IB_STATE_VALUE_COUNT-1] != mapping.ep_half_last) {
+        values[RIVA_IB_STATE_VALUE_COUNT-2] != mapping.ep_half_last ||
+        values[RIVA_IB_STATE_VALUE_COUNT-1] !=
+            mapping.field_bias_mean_activity) {
         std::cerr << "state-vector append contract is inconsistent\n";
+        return 1;
+    }
+
+    riva_ib_parameters_t activityParameters = parameters;
+    activityParameters.field_bias_mean_correction_enabled = 1;
+    riva_ib_state_t activity = biasedState(
+        activityParameters, material, 0.601, 4.0);
+    if (!advance(activityParameters, material, 0.002, activity) ||
+        !(activity.field_bias_mean_activity > 0.0) ||
+        !(activity.field_bias_mean_activity <= 1.0)) {
+        std::cerr << "field correction activity did not evolve monotonically\n";
         return 1;
     }
 
@@ -191,7 +261,8 @@ int main()
         return 1;
     }
 
-    std::cout << "PASS: plastic activity captured by both backbones; no "
+    std::cout << "PASS: bounded field-bias mean correction; plastic activity "
+                 "captured by both backbones; no "
                  "fictitious activation history; state append, restart, and "
                  "reversal-override contracts are stable\n";
     return 0;

@@ -1,4 +1,4 @@
-# Verify OpenSees sendSelf/recvSelf for the revision-3 research state.
+# Verify OpenSees sendSelf/recvSelf for the revision-4 research state.
 
 proc configureAnalysis {} {
     wipeAnalysis
@@ -45,7 +45,7 @@ set Dr [expr {(0.78-0.601)/(0.78-0.51)}]
 nDMaterial RIVASandIntermediateBiasResearch $matTag \
     $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 -nSub 4 -stressScale 1.0 \
-    -reversalLatch \
+    -reversalLatch -fieldBiasVolume \
     -stage 1 -initialStress -19.4 -19.4 -40.0 0.0 0.0 10.0
 
 foreach {tag x y z} {
@@ -67,13 +67,19 @@ set copiedLatch [lindex [eleResponse 1 material 1 reversalLatch] 0]
 if {$copiedLatch != 1.0} {
     error "element material copy lost -reversalLatch"
 }
+set copiedFieldBias [lindex [eleResponse 1 material 1 fieldBiasVolume] 0]
+if {$copiedFieldBias != 1.0} {
+    error "element material copy lost -fieldBiasVolume"
+}
 
 set pointsPerCycle 32
 set amplitude 0.005
 advanceCycle 1 32 $pointsPerCycle $amplitude
 set checkpointState [eleResponse 1 material 1 state]
-if {[llength $checkpointState] != 138 || [lindex $checkpointState 137] <= 0.0} {
-    error "checkpoint did not contain the revision-3 plastic-activity state"
+if {[llength $checkpointState] != 139 ||
+    [lindex $checkpointState 137] <= 0.0 ||
+    [lindex $checkpointState 138] <= 0.0} {
+    error "checkpoint did not contain the revision-4 activity states"
 }
 
 set databasePrefix [file join [pwd] RIVASandIntermediateBiasResearch_restart_db]
@@ -91,6 +97,10 @@ set restoredLatch [lindex [eleResponse 1 material 1 reversalLatch] 0]
 if {$restoredLatch != 1.0} {
     error "sendSelf/recvSelf lost -reversalLatch"
 }
+set restoredFieldBias [lindex [eleResponse 1 material 1 fieldBiasVolume] 0]
+if {$restoredFieldBias != 1.0} {
+    error "sendSelf/recvSelf lost -fieldBiasVolume"
+}
 advanceCycle 33 64 $pointsPerCycle $amplitude
 set restartedState [eleResponse 1 material 1 state]
 set restartedStress [eleResponse 1 material 1 stress]
@@ -100,4 +110,4 @@ assertVectorsClose $restartedStress $baselineStress 1.0e-13 "restart stress"
 
 wipe
 foreach path [glob -nocomplain ${databasePrefix}*] { file delete -force $path }
-puts "PASS: revision-3 RIVASandIntermediateBiasResearch save/restore and serialized reversal-latch continuity"
+puts "PASS: revision-4 RIVASandIntermediateBiasResearch save/restore and serialized reversal-latch/field-bias continuity"
