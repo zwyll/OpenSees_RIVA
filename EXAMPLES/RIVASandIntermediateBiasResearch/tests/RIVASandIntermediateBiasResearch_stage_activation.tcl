@@ -80,6 +80,10 @@ foreach eleTag {1 2} {
     if {$materialStage != 1.0} {
         error "RIVASandIntermediateBiasResearch element $eleTag reports stage=$materialStage"
     }
+    set reversalLatch [lindex [eleResponse $eleTag reversalLatch] 0]
+    if {$reversalLatch != 0.0} {
+        error "RIVASandIntermediateBiasResearch default reversal latch is not disabled"
+    }
     set pressureFloor [lindex [eleResponse $eleTag pressureFloor] 0]
     set tangentFloor [lindex [eleResponse $eleTag tangentPressureFloor] 0]
     if {abs($pressureFloor-0.001) > 1.0e-12 ||

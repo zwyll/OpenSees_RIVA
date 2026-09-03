@@ -23,6 +23,11 @@ namespace {
 
 const int RIVASerializedSize = 180;
 
+enum RIVAAdapterConfigurationFlag {
+    RIVAGeostaticAdmissionFlag = 1,
+    RIVAReversalLatchFlag = 2
+};
+
 bool finiteVector(const Vector &value)
 {
     for (int i = 0; i < value.Size(); ++i)
@@ -41,7 +46,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
                << "eMax eMin Q R nG <-rho value> <-nSub value> "
                << "<-stressScale value> <-pMin value> "
                << "<-tangentPMin value> <-pResidual value> "
-               << "<-geostaticAdmission> <-stage 0|1|2> "
+               << "<-geostaticAdmission> <-reversalLatch> <-stage 0|1|2> "
                << "<-initialStress sxx syy szz sxy syz sxz>" << endln;
         return 0;
     }
@@ -67,6 +72,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
     double tangentPressureFloor = -1.0;
     double residualPressure = 0.0;
     bool geostaticAdmission = false;
+    bool reversalLatch = false;
     int fixedSubsteps = 1;
     int stage = 0;
     bool stageSpecified = false;
@@ -126,6 +132,8 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
             }
         } else if (std::strcmp(option, "-geostaticAdmission") == 0) {
             geostaticAdmission = true;
+        } else if (std::strcmp(option, "-reversalLatch") == 0) {
+            reversalLatch = true;
         } else if (std::strcmp(option, "-stage") == 0) {
             count = 1;
             if (OPS_GetIntInput(&count, &stage) < 0) {
@@ -170,6 +178,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
         delete material;
         return 0;
     }
+    material->setReversalLatch(reversalLatch);
     return material;
 }
 
@@ -185,6 +194,7 @@ RIVASandIntermediateBiasResearch::RIVASandIntermediateBiasResearch(
       mFixedSubsteps(fixedSubsteps), mStage(initialStage),
       mInitialStage(initialStage), mValid(true),
       mGeostaticAdmission(geostaticAdmission),
+      mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
       mInitialTangent(6, 6), mStateOutput(RIVA_IB_STATE_VALUE_COUNT),
@@ -226,6 +236,7 @@ RIVASandIntermediateBiasResearch::RIVASandIntermediateBiasResearch()
       mTangentPressureFloor(0.0), mFixedSubsteps(1),
       mStage(0), mInitialStage(0), mValid(false),
       mGeostaticAdmission(false),
+      mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
       mInitialTangent(6, 6), mStateOutput(RIVA_IB_STATE_VALUE_COUNT),
@@ -452,13 +463,20 @@ RIVASandIntermediateBiasResearch::setTrialStrain(const Vector &strain)
     }
     tensor_t stress = mTrialState.base.stress;
     riva_update_info_t information = {};
-    if (!riva_ib_update_material(
+    const int reversalOverride =
+        (mReversalLatch && mLatchValid) ? mLatchedReversal : -1;
+    if (!riva_ib_update_material_ex(
             &mParameters, &mMaterial, strainIncrementToTensor(increment),
-            mFixedSubsteps, &mTrialState, &stress, &information)) {
+            mFixedSubsteps, &mTrialState, &stress, &information,
+            reversalOverride)) {
         mTrialState = mCommittedState;
         mTrialStress = mCommittedStress;
         mTrialStrain = mCommittedStrain;
         return -1;
+    }
+    if (mReversalLatch && !mLatchValid && information.accepted_substeps > 0) {
+        mLatchedReversal = information.reversal_registered ? 1 : 0;
+        mLatchValid = true;
     }
     tensorToStress(stress, mTrialStress);
     if (!finiteVector(mTrialStress)) {
@@ -530,6 +548,8 @@ RIVASandIntermediateBiasResearch::commitState(void)
     mCommittedStrain = mTrialStrain;
     mCommittedStress = mTrialStress;
     mCommittedState = mTrialState;
+    mLatchValid = false;
+    mLatchedReversal = 0;
     return 0;
 }
 
@@ -539,6 +559,8 @@ RIVASandIntermediateBiasResearch::revertToLastCommit(void)
     mTrialStrain = mCommittedStrain;
     mTrialStress = mCommittedStress;
     mTrialState = mCommittedState;
+    mLatchValid = false;
+    mLatchedReversal = 0;
     updateTrialTangent();
     return 0;
 }
@@ -553,6 +575,8 @@ RIVASandIntermediateBiasResearch::revertToStart(void)
     mTrialStress = mInitialStress;
     mCommittedState = riva_ib_state_t{};
     mTrialState = riva_ib_state_t{};
+    mLatchValid = false;
+    mLatchedReversal = 0;
     mTangent = mInitialTangent;
     if (mValid && mStage != 0 && activateFromCommittedStress() != 0)
         mValid = false;
@@ -626,7 +650,10 @@ RIVASandIntermediateBiasResearch::sendSelf(int commitTag, Channel &theChannel)
     data(174) = mParameters.base.p_min;
     data(175) = mTangentPressureFloor;
     data(176) = mParameters.base.p_residual;
-    data(177) = mGeostaticAdmission ? 1.0 : 0.0;
+    const int configurationFlags =
+        (mGeostaticAdmission ? RIVAGeostaticAdmissionFlag : 0) |
+        (mReversalLatch ? RIVAReversalLatchFlag : 0);
+    data(177) = configurationFlags;
     data(178) = mCommittedState.base.geostatic_admitted;
     data(179) = RIVA_IB_KERNEL_REVISION;
 
@@ -742,7 +769,12 @@ RIVASandIntermediateBiasResearch::recvSelf(int commitTag, Channel &theChannel,
     setReferenceParameters();
     mParameters.base.p_min = data(174);
     mParameters.base.p_residual = data(176);
-    mGeostaticAdmission = std::llround(data(177)) != 0;
+    const int configurationFlags = (int)std::llround(data(177));
+    mGeostaticAdmission =
+        (configurationFlags & RIVAGeostaticAdmissionFlag) != 0;
+    mReversalLatch = (configurationFlags & RIVAReversalLatchFlag) != 0;
+    mLatchValid = false;
+    mLatchedReversal = 0;
     mTangentPressureFloor = riva_max(data(175), mParameters.base.p_min);
     setMaterialParameters(data(13), data(14), data(15), data(16), data(17),
                           data(18), data(19), data(20), data(21), data(22));
@@ -809,6 +841,8 @@ RIVASandIntermediateBiasResearch::getScalarResponse(int responseID)
         mScalarOutput(0) = mTangentPressureFloor;
     } else if (responseID == 10) {
         mScalarOutput(0) = (double)mStage;
+    } else if (responseID == 11) {
+        mScalarOutput(0) = mReversalLatch ? 1.0 : 0.0;
     }
     return mScalarOutput;
 }
@@ -839,6 +873,8 @@ RIVASandIntermediateBiasResearch::setResponse(const char **argv, int argc, OPS_S
         return new MaterialResponse(this, 9, getScalarResponse(9));
     if (std::strcmp(argv[0], "stage") == 0)
         return new MaterialResponse(this, 10, getScalarResponse(10));
+    if (std::strcmp(argv[0], "reversalLatch") == 0)
+        return new MaterialResponse(this, 11, getScalarResponse(11));
     return NDMaterial::setResponse(argv, argc, output);
 }
 
@@ -848,7 +884,7 @@ RIVASandIntermediateBiasResearch::getResponse(int responseID, Information &mater
     if (responseID == 1) return materialInfo.setVector(getStress());
     if (responseID == 2) return materialInfo.setVector(getStrain());
     if (responseID == 3) return materialInfo.setVector(getStateVector());
-    if (responseID >= 4 && responseID <= 10)
+    if (responseID >= 4 && responseID <= 11)
         return materialInfo.setVector(getScalarResponse(responseID));
     return NDMaterial::getResponse(responseID, materialInfo);
 }
@@ -922,6 +958,7 @@ RIVASandIntermediateBiasResearch::Print(OPS_Stream &output, int flag)
            << " pResidual=" << mParameters.base.p_residual
            << " geostaticAdmission="
            << (mGeostaticAdmission ? 1 : 0)
+           << " reversalLatch=" << (mReversalLatch ? 1 : 0)
            << " tangentPMin=" << mTangentPressureFloor
            << " parameterSHA=" << RIVA_IB_PARAMETER_SHA256 << endln;
 }

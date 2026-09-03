@@ -147,8 +147,52 @@ int main()
         return 1;
     }
 
+    /* The extended entry point must preserve the original detector when the
+     * adapter supplies no override, and a forced reversal must be registered
+     * exactly once rather than once per constitutive substep. */
+    const tensor_t latchIncrement = {0, 0, 0, 0, 0, -0.0005};
+    riva_ib_state_t automatic = mapping;
+    riva_ib_state_t original = mapping;
+    riva_update_info_t automaticInfo = {};
+    riva_update_info_t originalInfo = {};
+    if (!riva_ib_update_material_ex(&parameters, &material, latchIncrement, 4,
+                                    &automatic, nullptr, &automaticInfo, -1) ||
+        !riva_ib_update_material(&parameters, &material, latchIncrement, 4,
+                                 &original, nullptr, &originalInfo) ||
+        !sameState(automatic, original) ||
+        automaticInfo.reversal_registered !=
+            originalInfo.reversal_registered) {
+        std::cerr << "automatic reversal override changed the original path\n";
+        return 1;
+    }
+
+    riva_ib_state_t suppressed = mapping;
+    riva_update_info_t suppressedInfo = {};
+    if (!riva_ib_update_material_ex(&parameters, &material, latchIncrement, 4,
+                                    &suppressed, nullptr, &suppressedInfo, 0) ||
+        suppressedInfo.reversal_registered != 0 ||
+        suppressed.base.reversals != mapping.base.reversals) {
+        std::cerr << "forced no-reversal decision was not respected\n";
+        return 1;
+    }
+
+    riva_ib_state_t forced = mapping;
+    riva_ib_state_t repeatedTrial = mapping;
+    riva_update_info_t forcedInfo = {};
+    riva_update_info_t repeatedInfo = {};
+    if (!riva_ib_update_material_ex(&parameters, &material, latchIncrement, 4,
+                                    &forced, nullptr, &forcedInfo, 1) ||
+        !riva_ib_update_material_ex(&parameters, &material, latchIncrement, 4,
+                                    &repeatedTrial, nullptr, &repeatedInfo, 1) ||
+        forcedInfo.reversal_registered != 1 ||
+        forced.base.reversals != mapping.base.reversals + 1 ||
+        !sameState(forced, repeatedTrial)) {
+        std::cerr << "latched reversal was not deterministic and single-event\n";
+        return 1;
+    }
+
     std::cout << "PASS: plastic activity captured by both backbones; no "
-                 "fictitious activation history; state append and restart "
-                 "contracts are stable\n";
+                 "fictitious activation history; state append, restart, and "
+                 "reversal-override contracts are stable\n";
     return 0;
 }

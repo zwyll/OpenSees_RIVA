@@ -2324,10 +2324,13 @@ RIVA_IB_HD static inline riva_ib_state_t riva_ib_host_outer_correction(
     return s;
 }
 
-RIVA_IB_HD static inline int riva_ib_update_material(
+/* reversal_override: -1 detects from the committed state and host increment;
+ * 0 or 1 forces the host-level reversal decision. A host adapter may use
+ * this entry point to keep one event decision during repeated trial calls. */
+RIVA_IB_HD static inline int riva_ib_update_material_ex(
     const riva_ib_parameters_t *p,const riva_material_parameters_t *m,
     tensor_t deps,int32_t nsub,riva_ib_state_t *state,tensor_t *stress_new,
-    riva_update_info_t *info)
+    riva_update_info_t *info,int32_t reversal_override)
 {
     if (!p || !m || !state || !state->base.initialized || nsub<1 ||
         !riva_material_parameters_valid(&p->base,m) || !riva_finite_tensor(deps))
@@ -2336,8 +2339,9 @@ RIVA_IB_HD static inline int riva_ib_update_material(
     int valid=0;
     const tensor_t direction=objective?riva_ib_host_direction(&p->base,deps,&valid):
         riva_zero();
-    const int reversal=objective?riva_ib_host_reversal(&p->base,&state->base,
-        direction,valid):0;
+    const int reversal=objective?
+        (reversal_override<0?riva_ib_host_reversal(&p->base,&state->base,
+            direction,valid):(reversal_override!=0)):0;
     const riva_ib_state_t initial=*state;
     riva_ib_state_t current=initial;
     const int phase_active=p->phase_transformation_enabled &&
@@ -2370,6 +2374,14 @@ RIVA_IB_HD static inline int riva_ib_update_material(
     *state=current; if (stress_new) *stress_new=current.base.stress;
     if (info) { info->accepted_substeps=nsub; info->reversal_registered=reversal; }
     return 1;
+}
+
+RIVA_IB_HD static inline int riva_ib_update_material(
+    const riva_ib_parameters_t *p,const riva_material_parameters_t *m,
+    tensor_t deps,int32_t nsub,riva_ib_state_t *state,tensor_t *stress_new,
+    riva_update_info_t *info)
+{
+    return riva_ib_update_material_ex(p,m,deps,nsub,state,stress_new,info,-1);
 }
 
 RIVA_IB_HD static inline int riva_ib_update(

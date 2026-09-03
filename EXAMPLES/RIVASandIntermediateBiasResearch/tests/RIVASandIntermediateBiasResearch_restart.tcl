@@ -45,6 +45,7 @@ set Dr [expr {(0.78-0.601)/(0.78-0.51)}]
 nDMaterial RIVASandIntermediateBiasResearch $matTag \
     $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 -nSub 4 -stressScale 1.0 \
+    -reversalLatch \
     -stage 1 -initialStress -19.4 -19.4 -40.0 0.0 0.0 10.0
 
 foreach {tag x y z} {
@@ -61,6 +62,11 @@ equalDOF 5 7 1
 equalDOF 5 8 1
 pattern Plain 1 Linear { load 5 1.0 0.0 0.0 }
 configureAnalysis
+
+set copiedLatch [lindex [eleResponse 1 material 1 reversalLatch] 0]
+if {$copiedLatch != 1.0} {
+    error "element material copy lost -reversalLatch"
+}
 
 set pointsPerCycle 32
 set amplitude 0.005
@@ -81,6 +87,10 @@ set baselineStress [eleResponse 1 material 1 stress]
 
 restore 101
 configureAnalysis
+set restoredLatch [lindex [eleResponse 1 material 1 reversalLatch] 0]
+if {$restoredLatch != 1.0} {
+    error "sendSelf/recvSelf lost -reversalLatch"
+}
 advanceCycle 33 64 $pointsPerCycle $amplitude
 set restartedState [eleResponse 1 material 1 state]
 set restartedStress [eleResponse 1 material 1 stress]
@@ -90,4 +100,4 @@ assertVectorsClose $restartedStress $baselineStress 1.0e-13 "restart stress"
 
 wipe
 foreach path [glob -nocomplain ${databasePrefix}*] { file delete -force $path }
-puts "PASS: revision-3 RIVASandIntermediateBiasResearch save/restore continuity"
+puts "PASS: revision-3 RIVASandIntermediateBiasResearch save/restore and serialized reversal-latch continuity"
