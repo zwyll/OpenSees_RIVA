@@ -68,6 +68,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
     double residualPressure = 0.0;
     bool geostaticAdmission = false;
     bool reversalLatch = false;
+    bool noBiasVolume = false;
     int fixedSubsteps = 1;
     int stage = 0;
     bool stageSpecified = false;
@@ -129,6 +130,8 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
             geostaticAdmission = true;
         } else if (std::strcmp(option, "-reversalLatch") == 0) {
             reversalLatch = true;
+        } else if (std::strcmp(option, "-noBiasVolume") == 0) {
+            noBiasVolume = true;
         } else if (std::strcmp(option, "-stage") == 0) {
             count = 1;
             if (OPS_GetIntInput(&count, &stage) < 0) {
@@ -174,6 +177,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
         return 0;
     }
     material->setReversalLatch(reversalLatch);
+    if (noBiasVolume) material->disableBiasReversibleVolume();
     return material;
 }
 

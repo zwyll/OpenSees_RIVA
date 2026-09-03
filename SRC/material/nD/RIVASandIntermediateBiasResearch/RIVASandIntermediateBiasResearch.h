@@ -62,6 +62,10 @@ public:
 
     bool isValid(void) const;
     void setReversalLatch(bool on) { mReversalLatch = on; }
+    /* Diagnostic: zero the calibrated bias_reversible_volume mechanism
+     * (leaves the phase/dilatancy channel intact).  Isolates its
+     * contribution to the field-scale pore-pressure recovery. */
+    void disableBiasReversibleVolume() { mParameters.base.bias_reversible_volume_enabled = 0; }
 
 private:
     enum {
