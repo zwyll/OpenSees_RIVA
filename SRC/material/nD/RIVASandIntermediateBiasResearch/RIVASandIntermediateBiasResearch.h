@@ -65,6 +65,9 @@ public:
     void setFieldBiasMeanCorrection(bool on) {
         mParameters.field_bias_mean_correction_enabled = on ? 1 : 0;
     }
+    void setBiasReversibleVolumeEnabled(bool on) {
+        mParameters.base.bias_reversible_volume_enabled = on ? 1 : 0;
+    }
 
 private:
     enum {

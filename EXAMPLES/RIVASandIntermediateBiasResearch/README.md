@@ -19,7 +19,8 @@ nDMaterial RIVASandIntermediateBiasResearch tag Dr M kd h m zeta \
     eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
     <-pMin value> <-tangentPMin value> <-pResidual value> \
-    <-geostaticAdmission> <-reversalLatch> <-fieldBiasVolume> <-stage 0|1|2> \
+    <-geostaticAdmission> <-reversalLatch> <-fieldBiasVolume> <-noBiasVolume> \
+    <-stage 0|1|2> \
     <-initialStress sxx syy szz sxy syz sxz>
 ```
 
@@ -73,15 +74,32 @@ all constitutive substeps and repeated Newton trials from that committed
 state. This is a research option, not part of the production `RIVASand`
 calibration.
 
+`-noBiasVolume` is a separate opt-in diagnostic option carried forward from
+the Phase-3 field study. It disables the entire inherited reversible
+biased-volume target, including both its oscillatory pressure wave and mean
+shift. It does not disable the phase-transformation or irreversible
+dilatancy/contraction channels. The option remains off by default and is not
+a recalibrated constitutive replacement for the biased-volume law. OpenSees
+rejects a command that combines `-noBiasVolume` with `-fieldBiasVolume`, since
+there is no mean biased-volume component left for the field correction to
+modify.
+
 For an explicit research rerun of the three-stage sloping-ground workflow, use:
 
 ```tcl
 lappend matCmd -geostaticAdmission -reversalLatch -fieldBiasVolume
 ```
 
-Do not combine `-fieldBiasVolume` with the diagnostic `-noBiasVolume` switch
-from the external Phase-3 package. The new option retains the calibrated
-oscillatory pressure wave instead of disabling the whole mechanism.
+For a diagnostic rerun that completely disables the inherited biased-volume
+target, use instead:
+
+```tcl
+lappend matCmd -geostaticAdmission -reversalLatch -noBiasVolume
+```
+
+The `-fieldBiasVolume` option retains the calibrated oscillatory pressure
+wave; `-noBiasVolume` disables the whole reversible biased-volume target.
+They cannot be combined.
 
 Without `-geostaticAdmission`, the conventional two-stage sequence is
 unchanged: use stage 0 for gravity and activate the nonlinear cyclic material
@@ -125,6 +143,9 @@ After building OpenSees, run:
 
 ./build-riva-ib/OpenSees \
   EXAMPLES/RIVASandIntermediateBiasResearch/tests/RIVASandIntermediateBiasResearch_restart.tcl
+
+./build-riva-ib/OpenSees \
+  EXAMPLES/RIVASandIntermediateBiasResearch/tests/RIVASandIntermediateBiasResearch_no_bias_volume.tcl
 ```
 
 The standalone replay in `tests/RIVASandIntermediateBiasResearchNativeReplay.cpp`
@@ -137,6 +158,10 @@ that both an element material copy and a material reconstructed through
 additionally checks that automatic detection is unchanged, that a forced
 reversal is applied exactly once across fixed constitutive substeps, and that
 the field correction removes only the bounded mean component.
+
+The no-bias-volume test verifies that the switch is off by default and that
+the enabled setting survives both the element material copy and
+`sendSelf`/`recvSelf`.
 
 The standalone state-contract test can be built without OpenSees libraries:
 
