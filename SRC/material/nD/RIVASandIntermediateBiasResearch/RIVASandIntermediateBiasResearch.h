@@ -61,6 +61,11 @@ public:
     void Print(OPS_Stream &output, int flag = 0);
 
     bool isValid(void) const;
+    void setReversalLatch(bool on) { mReversalLatch = on; }
+    /* Diagnostic: zero the calibrated bias_reversible_volume mechanism
+     * (leaves the phase/dilatancy channel intact).  Isolates its
+     * contribution to the field-scale pore-pressure recovery. */
+    void disableBiasReversibleVolume() { mParameters.base.bias_reversible_volume_enabled = 0; }
 
 private:
     enum {
@@ -96,6 +101,13 @@ private:
     int mInitialStage;
     bool mValid;
     bool mGeostaticAdmission;
+    /* v10 reversal-latch port: freeze the host-reversal decision for the
+     * remainder of the load step (cleared on commit/revert).  Opt-in via
+     * -reversalLatch; NOT serialized (run configuration; this research
+     * exe is used single-rank). */
+    bool mReversalLatch;
+    bool mLatchValid;
+    int mLatchedReversal;
 
     riva_ib_native::riva_ib_parameters_t mParameters;
     riva_ib_native::riva_material_parameters_t mMaterial;

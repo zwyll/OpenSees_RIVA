@@ -67,6 +67,8 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
     double tangentPressureFloor = -1.0;
     double residualPressure = 0.0;
     bool geostaticAdmission = false;
+    bool reversalLatch = false;
+    bool noBiasVolume = false;
     int fixedSubsteps = 1;
     int stage = 0;
     bool stageSpecified = false;
@@ -126,6 +128,10 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
             }
         } else if (std::strcmp(option, "-geostaticAdmission") == 0) {
             geostaticAdmission = true;
+        } else if (std::strcmp(option, "-reversalLatch") == 0) {
+            reversalLatch = true;
+        } else if (std::strcmp(option, "-noBiasVolume") == 0) {
+            noBiasVolume = true;
         } else if (std::strcmp(option, "-stage") == 0) {
             count = 1;
             if (OPS_GetIntInput(&count, &stage) < 0) {
@@ -170,6 +176,8 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
         delete material;
         return 0;
     }
+    material->setReversalLatch(reversalLatch);
+    if (noBiasVolume) material->disableBiasReversibleVolume();
     return material;
 }
 
@@ -185,6 +193,7 @@ RIVASandIntermediateBiasResearch::RIVASandIntermediateBiasResearch(
       mFixedSubsteps(fixedSubsteps), mStage(initialStage),
       mInitialStage(initialStage), mValid(true),
       mGeostaticAdmission(geostaticAdmission),
+      mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
       mInitialTangent(6, 6), mStateOutput(RIVA_IB_STATE_VALUE_COUNT),
@@ -226,6 +235,7 @@ RIVASandIntermediateBiasResearch::RIVASandIntermediateBiasResearch()
       mTangentPressureFloor(0.0), mFixedSubsteps(1),
       mStage(0), mInitialStage(0), mValid(false),
       mGeostaticAdmission(false),
+      mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
       mInitialTangent(6, 6), mStateOutput(RIVA_IB_STATE_VALUE_COUNT),
@@ -238,6 +248,7 @@ RIVASandIntermediateBiasResearch::RIVASandIntermediateBiasResearch()
     mTrialStress.Zero();
     mCommittedState = riva_ib_state_t{};
     mTrialState = riva_ib_state_t{};
+    mLatchValid = false;
     setReferenceParameters();
     mTangentPressureFloor = riva_max(
         mParameters.base.p_ref/200.0, mParameters.base.p_min);
@@ -452,13 +463,20 @@ RIVASandIntermediateBiasResearch::setTrialStrain(const Vector &strain)
     }
     tensor_t stress = mTrialState.base.stress;
     riva_update_info_t information = {};
-    if (!riva_ib_update_material(
+    const int reversalOverride =
+        (mReversalLatch && mLatchValid) ? mLatchedReversal : -1;
+    if (!riva_ib_update_material_ex(
             &mParameters, &mMaterial, strainIncrementToTensor(increment),
-            mFixedSubsteps, &mTrialState, &stress, &information)) {
+            mFixedSubsteps, &mTrialState, &stress, &information,
+            reversalOverride)) {
         mTrialState = mCommittedState;
         mTrialStress = mCommittedStress;
         mTrialStrain = mCommittedStrain;
         return -1;
+    }
+    if (mReversalLatch && !mLatchValid && information.accepted_substeps > 0) {
+        mLatchedReversal = information.reversal_registered ? 1 : 0;
+        mLatchValid = true;
     }
     tensorToStress(stress, mTrialStress);
     if (!finiteVector(mTrialStress)) {
@@ -530,6 +548,7 @@ RIVASandIntermediateBiasResearch::commitState(void)
     mCommittedStrain = mTrialStrain;
     mCommittedStress = mTrialStress;
     mCommittedState = mTrialState;
+    mLatchValid = false;
     return 0;
 }
 
@@ -539,6 +558,7 @@ RIVASandIntermediateBiasResearch::revertToLastCommit(void)
     mTrialStrain = mCommittedStrain;
     mTrialStress = mCommittedStress;
     mTrialState = mCommittedState;
+    mLatchValid = false;
     updateTrialTangent();
     return 0;
 }
@@ -553,6 +573,7 @@ RIVASandIntermediateBiasResearch::revertToStart(void)
     mTrialStress = mInitialStress;
     mCommittedState = riva_ib_state_t{};
     mTrialState = riva_ib_state_t{};
+    mLatchValid = false;
     mTangent = mInitialTangent;
     if (mValid && mStage != 0 && activateFromCommittedStress() != 0)
         mValid = false;
