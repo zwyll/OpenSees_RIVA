@@ -61,6 +61,7 @@ public:
     void Print(OPS_Stream &output, int flag = 0);
 
     bool isValid(void) const;
+    void setReversalLatch(bool on) { mReversalLatch = on; }
 
 private:
     enum {
@@ -96,6 +97,13 @@ private:
     int mInitialStage;
     bool mValid;
     bool mGeostaticAdmission;
+    /* Freeze one host-level reversal decision across the trial evaluations
+     * belonging to a single OpenSees load step. The enabled setting is
+     * serialized; the transient decision is cleared at every committed or
+     * restored state. */
+    bool mReversalLatch;
+    bool mLatchValid;
+    int mLatchedReversal;
 
     riva_ib_native::riva_ib_parameters_t mParameters;
     riva_ib_native::riva_material_parameters_t mMaterial;

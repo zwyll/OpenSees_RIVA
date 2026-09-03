@@ -19,7 +19,7 @@ nDMaterial RIVASandIntermediateBiasResearch tag Dr M kd h m zeta \
     eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
     <-pMin value> <-tangentPMin value> <-pResidual value> \
-    <-geostaticAdmission> <-stage 0|1|2> \
+    <-geostaticAdmission> <-reversalLatch> <-stage 0|1|2> \
     <-initialStress sxx syy szz sxy syz sxz>
 ```
 
@@ -41,6 +41,17 @@ nDMaterial RIVASandIntermediateBiasResearch 8001 \
 Use `-stressScale 1.0` when the OpenSees stress unit is kPa and
 `-stressScale 1000.0` when it is Pa. `-nSub` selects fixed constitutive
 substeps per host strain increment.
+
+`-reversalLatch` is an opt-in OpenSees iteration stabilizer for dynamic
+research analyses. It makes one host-level reversal decision on the first
+accepted material evaluation of a load step and reuses that decision during
+subsequent Newton trial evaluations. The transient decision is cleared on
+commit, revert, and restart; the enabled setting is preserved by material
+copying and `sendSelf`/`recvSelf`. The option is disabled by default, so the
+accepted constitutive histories remain unchanged. Because the decision is
+tied to the first accepted Newton trial, timestep and iteration-path
+objectivity must still be demonstrated for a complete boundary-value problem
+before treating it as a production default.
 
 Without `-geostaticAdmission`, the conventional two-stage sequence is
 unchanged: use stage 0 for gravity and activate the nonlinear cyclic material
@@ -89,6 +100,12 @@ After building OpenSees, run:
 The standalone replay in `tests/RIVASandIntermediateBiasResearchNativeReplay.cpp`
 compares the allocation-free native kernel against the private six-history
 handoff oracle without using Python at runtime.
+
+The restart test enables `-reversalLatch` and verifies that both an element
+material copy and a material reconstructed through `sendSelf`/`recvSelf`
+retain the setting. The standalone state-contract test additionally checks
+that automatic detection is unchanged and that a forced reversal is applied
+exactly once across fixed constitutive substeps.
 
 The standalone state-contract test can be built without OpenSees libraries:
 
