@@ -49,7 +49,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
                << "<-stressScale value> <-pMin value> "
                << "<-tangentPMin value> <-pResidual value> "
                << "<-geostaticAdmission> <-reversalLatch> "
-               << "<-fieldBiasVolume> <-noBiasVolume> <-stage 0|1|2> "
+               << "<-BiasVolume 0|1|2> <-stage 0|1|2> "
                << "<-initialStress sxx syy szz sxy syz sxz>" << endln;
         return 0;
     }
@@ -76,8 +76,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
     double residualPressure = 0.0;
     bool geostaticAdmission = false;
     bool reversalLatch = false;
-    bool fieldBiasMeanCorrection = false;
-    bool noBiasVolume = false;
+    int biasVolumeMode = -1; // Unspecified; use mode 0 after parsing.
     int fixedSubsteps = 1;
     int stage = 0;
     bool stageSpecified = false;
@@ -139,10 +138,31 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
             geostaticAdmission = true;
         } else if (std::strcmp(option, "-reversalLatch") == 0) {
             reversalLatch = true;
-        } else if (std::strcmp(option, "-fieldBiasVolume") == 0) {
-            fieldBiasMeanCorrection = true;
-        } else if (std::strcmp(option, "-noBiasVolume") == 0) {
-            noBiasVolume = true;
+        } else if (std::strcmp(option, "-BiasVolume") == 0 ||
+                   std::strcmp(option, "-fieldBiasVolume") == 0 ||
+                   std::strcmp(option, "-noBiasVolume") == 0) {
+            int requestedMode = 0;
+            if (std::strcmp(option, "-BiasVolume") == 0) {
+                count = 1;
+                if (OPS_GetIntInput(&count, &requestedMode) < 0 ||
+                    requestedMode < 0 || requestedMode > 2) {
+                    opserr << "WARNING invalid -BiasVolume for "
+                           << "RIVASandIntermediateBiasResearch tag " << tag
+                           << "; expected integer 0 (default), 1 (no bias volume), "
+                           << "or 2 (field bias correction)" << endln;
+                    return 0;
+                }
+            } else {
+                requestedMode = std::strcmp(option, "-noBiasVolume") == 0 ? 1 : 2;
+            }
+            if (biasVolumeMode >= 0 && biasVolumeMode != requestedMode) {
+                opserr << "WARNING conflicting bias-volume options for "
+                       << "RIVASandIntermediateBiasResearch tag " << tag
+                       << "; select one -BiasVolume mode (legacy aliases: "
+                       << "-noBiasVolume=1, -fieldBiasVolume=2)" << endln;
+                return 0;
+            }
+            biasVolumeMode = requestedMode;
         } else if (std::strcmp(option, "-stage") == 0) {
             count = 1;
             if (OPS_GetIntInput(&count, &stage) < 0) {
@@ -169,12 +189,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
     }
 
     if (initialStressSpecified && !stageSpecified) stage = 1;
-    if (fieldBiasMeanCorrection && noBiasVolume) {
-        opserr << "WARNING RIVASandIntermediateBiasResearch options "
-               << "-fieldBiasVolume and -noBiasVolume are mutually exclusive "
-               << "for tag " << tag << endln;
-        return 0;
-    }
+    if (biasVolumeMode < 0) biasVolumeMode = 0;
     if (stage != 0 && !initialStressSpecified) {
         opserr << "WARNING RIVASandIntermediateBiasResearch -stage 1 or 2 requires a compressive "
                << "-initialStress; otherwise create at stage 0, establish "
@@ -194,8 +209,8 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
         return 0;
     }
     material->setReversalLatch(reversalLatch);
-    material->setFieldBiasMeanCorrection(fieldBiasMeanCorrection);
-    material->setBiasReversibleVolumeEnabled(!noBiasVolume);
+    material->setFieldBiasMeanCorrection(biasVolumeMode == 2);
+    material->setBiasReversibleVolumeEnabled(biasVolumeMode != 1);
     return material;
 }
 
@@ -875,6 +890,8 @@ RIVASandIntermediateBiasResearch::getScalarResponse(int responseID)
     } else if (responseID == 13) {
         mScalarOutput(0) =
             mParameters.base.bias_reversible_volume_enabled ? 0.0 : 1.0;
+    } else if (responseID == 14) {
+        mScalarOutput(0) = getBiasVolumeMode();
     }
     return mScalarOutput;
 }
@@ -911,6 +928,9 @@ RIVASandIntermediateBiasResearch::setResponse(const char **argv, int argc, OPS_S
         return new MaterialResponse(this, 12, getScalarResponse(12));
     if (std::strcmp(argv[0], "noBiasVolume") == 0)
         return new MaterialResponse(this, 13, getScalarResponse(13));
+    if (std::strcmp(argv[0], "BiasVolume") == 0 ||
+        std::strcmp(argv[0], "biasVolume") == 0)
+        return new MaterialResponse(this, 14, getScalarResponse(14));
     return NDMaterial::setResponse(argv, argc, output);
 }
 
@@ -920,7 +940,7 @@ RIVASandIntermediateBiasResearch::getResponse(int responseID, Information &mater
     if (responseID == 1) return materialInfo.setVector(getStress());
     if (responseID == 2) return materialInfo.setVector(getStrain());
     if (responseID == 3) return materialInfo.setVector(getStateVector());
-    if (responseID >= 4 && responseID <= 13)
+    if (responseID >= 4 && responseID <= 14)
         return materialInfo.setVector(getScalarResponse(responseID));
     return NDMaterial::getResponse(responseID, materialInfo);
 }
@@ -995,6 +1015,7 @@ RIVASandIntermediateBiasResearch::Print(OPS_Stream &output, int flag)
            << " geostaticAdmission="
            << (mGeostaticAdmission ? 1 : 0)
            << " reversalLatch=" << (mReversalLatch ? 1 : 0)
+           << " BiasVolume=" << getBiasVolumeMode()
            << " fieldBiasVolume="
            << (mParameters.field_bias_mean_correction_enabled ? 1 : 0)
            << " noBiasVolume="

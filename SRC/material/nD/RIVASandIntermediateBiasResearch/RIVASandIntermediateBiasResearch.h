@@ -84,6 +84,11 @@ private:
     void buildTangent(double bulk, double shear, Matrix &matrix) const;
     void updateTrialTangent(void);
     double initialVoidRatio(void) const;
+    // Derived from the existing serialized flags; no additional restart state.
+    int getBiasVolumeMode(void) const {
+        return !mParameters.base.bias_reversible_volume_enabled ? 1 :
+            (mParameters.field_bias_mean_correction_enabled ? 2 : 0);
+    }
     const Vector &getStateVector(void);
     const Vector &getScalarResponse(int responseID);
 
