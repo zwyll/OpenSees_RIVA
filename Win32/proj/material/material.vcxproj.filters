@@ -113,7 +113,7 @@
     <Filter Include="nD\RIVASand">
       <UniqueIdentifier>{9022bd95-dfc3-41eb-9fc6-0cabf71a5408}</UniqueIdentifier>
     </Filter>
-    <Filter Include="nD\RIVASandIntermediateBiasResearch">
+    <Filter Include="nD\RIVASAND02">
       <UniqueIdentifier>{38d9bfef-88eb-4c87-a864-2d56638f6f52}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
@@ -1364,8 +1364,8 @@
     <ClCompile Include="..\..\..\SRC\material\nD\RIVASand\RIVASand.cpp">
       <Filter>nD\RIVASand</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\SRC\material\nD\RIVASandIntermediateBiasResearch\RIVASandIntermediateBiasResearch.cpp">
-      <Filter>nD\RIVASandIntermediateBiasResearch</Filter>
+    <ClCompile Include="..\..\..\SRC\material\nD\RIVASAND02\RIVASAND02.cpp">
+      <Filter>nD\RIVASAND02</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\SRC\material\nD\UVCmultiaxial.cpp">
       <Filter>nD</Filter>
@@ -2600,14 +2600,14 @@
     <ClInclude Include="..\..\..\SRC\material\nD\RIVASand\RIVASandKernel.h">
       <Filter>nD\RIVASand</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\SRC\material\nD\RIVASandIntermediateBiasResearch\RIVASandIntermediateBiasResearch.h">
-      <Filter>nD\RIVASandIntermediateBiasResearch</Filter>
+    <ClInclude Include="..\..\..\SRC\material\nD\RIVASAND02\RIVASAND02.h">
+      <Filter>nD\RIVASAND02</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\SRC\material\nD\RIVASandIntermediateBiasResearch\RIVASandIntermediateBiasResearchKernel.h">
-      <Filter>nD\RIVASandIntermediateBiasResearch</Filter>
+    <ClInclude Include="..\..\..\SRC\material\nD\RIVASAND02\RIVASAND02Kernel.h">
+      <Filter>nD\RIVASAND02</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\SRC\material\nD\RIVASandIntermediateBiasResearch\RIVASandIntermediateBiasResearchBaseKernel.h">
-      <Filter>nD\RIVASandIntermediateBiasResearch</Filter>
+    <ClInclude Include="..\..\..\SRC\material\nD\RIVASAND02\RIVASAND02BaseKernel.h">
+      <Filter>nD\RIVASAND02</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\SRC\material\nD\UVCmultiaxial.h">
       <Filter>nD</Filter>

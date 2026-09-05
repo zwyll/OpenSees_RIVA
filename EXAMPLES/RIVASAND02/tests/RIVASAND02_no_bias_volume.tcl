@@ -12,23 +12,23 @@ proc makeBrick {matTag} {
 }
 
 set Dr [expr {(0.78-0.601)/(0.78-0.51)}]
-set databasePrefix [file join [pwd] RIVASandIntermediateBiasResearch_no_bias_db]
+set databasePrefix [file join [pwd] RIVASAND02_no_bias_db]
 foreach path [glob -nocomplain ${databasePrefix}*] { file delete -force $path }
 
 # The accepted research response remains the default.
 wipe
 model BasicBuilder -ndm 3 -ndf 3
-nDMaterial RIVASandIntermediateBiasResearch 8020 \
+nDMaterial RIVASAND02 8020 \
     $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 -stressScale 1.0
 makeBrick 8020
 set defaultFlag [lindex [eleResponse 1 material 1 noBiasVolume] 0]
 if {$defaultFlag != 0.0} {
-    error "RIVASandIntermediateBiasResearch unexpectedly disables bias volume by default"
+    error "RIVASAND02 unexpectedly disables bias volume by default"
 }
 
 set conflictRejected [catch {
-    nDMaterial RIVASandIntermediateBiasResearch 8022 \
+    nDMaterial RIVASAND02 8022 \
         $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
         0.78 0.51 10.0 1.5 0.65 -stressScale 1.0 \
         -fieldBiasVolume -noBiasVolume
@@ -40,7 +40,7 @@ if {!$conflictRejected} {
 # The option must survive the element's material copy and database restart.
 wipe
 model BasicBuilder -ndm 3 -ndf 3
-nDMaterial RIVASandIntermediateBiasResearch 8021 \
+nDMaterial RIVASAND02 8021 \
     $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 -stressScale 1.0 -noBiasVolume
 makeBrick 8021

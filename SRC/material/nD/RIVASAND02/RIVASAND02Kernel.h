@@ -1,8 +1,8 @@
 /* -*- C++ -*- */
-#ifndef OPENSEES_RIVA_SAND_INTERMEDIATE_BIAS_RESEARCH_KERNEL_H
-#define OPENSEES_RIVA_SAND_INTERMEDIATE_BIAS_RESEARCH_KERNEL_H
+#ifndef OPENSEES_RIVASAND02_KERNEL_H
+#define OPENSEES_RIVASAND02_KERNEL_H
 
-/* Native, allocation-free translation of the private intermediate-bias
+/* RIVASAND02: native, allocation-free translation of the private intermediate-bias
  * RIVA-Sand research successor based on OpenSees_RIVA commit ec38952ca2c5336a.
  *
  * This is deliberately a separate material.  It does not change the frozen
@@ -16,7 +16,7 @@
  * stress assembly.
  */
 
-#include "RIVASandIntermediateBiasResearchBaseKernel.h"
+#include "RIVASAND02BaseKernel.h"
 
 #if defined(__CUDACC__)
 #define RIVA_IB_HD __host__ __device__
@@ -2528,4 +2528,4 @@ RIVA_IB_HD static inline int riva_ib_state_values(
 #undef riva_norm
 #undef riva_ddot
 #undef RIVA_IB_HD
-#endif /* OPENSEES_RIVA_SAND_INTERMEDIATE_BIAS_RESEARCH_KERNEL_H */
+#endif /* OPENSEES_RIVASAND02_KERNEL_H */

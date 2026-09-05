@@ -6,11 +6,11 @@
 #==============================================================================
 target_sources(OPS_Material
     PRIVATE
-      RIVASandIntermediateBiasResearch.cpp
+      RIVASAND02.cpp
     PUBLIC
-      RIVASandIntermediateBiasResearch.h
-      RIVASandIntermediateBiasResearchKernel.h
-      RIVASandIntermediateBiasResearchBaseKernel.h
+      RIVASAND02.h
+      RIVASAND02Kernel.h
+      RIVASAND02BaseKernel.h
 )
 
 target_include_directories(OPS_Material PUBLIC ${CMAKE_CURRENT_LIST_DIR})

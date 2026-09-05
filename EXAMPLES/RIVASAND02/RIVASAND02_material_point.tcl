@@ -7,7 +7,7 @@ model BasicBuilder -ndm 3 -ndf 3
 
 set matTag 8001
 set Dr [expr {(0.78-0.601)/(0.78-0.51)}]
-nDMaterial RIVASandIntermediateBiasResearch $matTag \
+nDMaterial RIVASAND02 $matTag \
     $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 \
     -nSub 1 -stressScale 1.0 \
@@ -51,7 +51,7 @@ algorithm Newton
 integrator DisplacementControl 5 1 1.0e-12
 analysis Static
 
-set output [open "RIVASandIntermediateBiasResearch_material_point.csv" "w"]
+set output [open "RIVASAND02_material_point.csv" "w"]
 puts $output "step,cycle,gamma_xz,tau_xz,sigma_xx,sigma_yy,sigma_zz,skeleton_pressure_loss_ratio,reversals,compatibility_residual"
 
 set pi [expr {acos(-1.0)}]
@@ -67,7 +67,7 @@ for {set step 0} {$step <= $totalSteps} {incr step} {
         set increment [expr {$gamma-$previousGamma}]
         integrator DisplacementControl 5 1 $increment
         if {[analyze 1] != 0} {
-            error "RIVASandIntermediateBiasResearch brick test failed at step $step"
+            error "RIVASAND02 brick test failed at step $step"
         }
     }
     set stress [eleResponse 1 material 1 stress]
@@ -81,4 +81,4 @@ for {set step 0} {$step <= $totalSteps} {incr step} {
 }
 
 close $output
-puts "Wrote RIVASandIntermediateBiasResearch_material_point.csv"
+puts "Wrote RIVASAND02_material_point.csv"

@@ -1,4 +1,4 @@
-# Verify that updateMaterialStage reaches every RIVASandIntermediateBiasResearch copy held by
+# Verify that updateMaterialStage reaches every RIVASAND02 copy held by
 # multiple OpenSees elements and initializes each from its own committed
 # effective stress.
 
@@ -7,7 +7,7 @@ model BasicBuilder -ndm 3 -ndf 4
 
 set matTag 8002
 set Dr [expr {(0.78-0.601)/(0.78-0.51)}]
-nDMaterial RIVASandIntermediateBiasResearch $matTag \
+nDMaterial RIVASAND02 $matTag \
     $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 -nSub 1 -stressScale 1.0 \
     -tangentPMin 2.0
@@ -60,7 +60,7 @@ algorithm Newton
 integrator DisplacementControl 9 3 -0.002
 analysis Static
 if {[analyze 1] != 0} {
-    error "RIVASandIntermediateBiasResearch stage-0 compression failed"
+    error "RIVASAND02 stage-0 compression failed"
 }
 
 loadConst -time 0.0
@@ -70,25 +70,25 @@ set pressureAnchors {}
 foreach eleTag {1 2} {
     set initializedState [eleResponse $eleTag state]
     if {[llength $initializedState] != 139} {
-        error "RIVASandIntermediateBiasResearch element $eleTag state response has [llength $initializedState] values, expected 139"
+        error "RIVASAND02 element $eleTag state response has [llength $initializedState] values, expected 139"
     }
     set pressureAnchor [lindex $initializedState 49]
     if {$pressureAnchor <= 0.0} {
-        error "RIVASandIntermediateBiasResearch element $eleTag copy was not initialized at stage activation"
+        error "RIVASAND02 element $eleTag copy was not initialized at stage activation"
     }
     set materialStage [lindex [eleResponse $eleTag stage] 0]
     if {$materialStage != 1.0} {
-        error "RIVASandIntermediateBiasResearch element $eleTag reports stage=$materialStage"
+        error "RIVASAND02 element $eleTag reports stage=$materialStage"
     }
     set reversalLatch [lindex [eleResponse $eleTag reversalLatch] 0]
     if {$reversalLatch != 0.0} {
-        error "RIVASandIntermediateBiasResearch default reversal latch is not disabled"
+        error "RIVASAND02 default reversal latch is not disabled"
     }
     set pressureFloor [lindex [eleResponse $eleTag pressureFloor] 0]
     set tangentFloor [lindex [eleResponse $eleTag tangentPressureFloor] 0]
     if {abs($pressureFloor-0.001) > 1.0e-12 ||
         abs($tangentFloor-2.0) > 1.0e-12} {
-        error "RIVASandIntermediateBiasResearch element $eleTag floors are pMin=$pressureFloor tangentPMin=$tangentFloor"
+        error "RIVASAND02 element $eleTag floors are pMin=$pressureFloor tangentPMin=$tangentFloor"
     }
     lappend pressureAnchors $pressureAnchor
 }
@@ -98,13 +98,13 @@ pattern Plain 2 Linear {
 }
 integrator DisplacementControl 9 1 0.0005
 if {[analyze 1] != 0} {
-    error "RIVASandIntermediateBiasResearch stage-1 shear step failed"
+    error "RIVASAND02 stage-1 shear step failed"
 }
 
 foreach eleTag {1 2} {
     set stress [eleResponse $eleTag stress]
     if {[llength $stress] != 6} {
-        error "RIVASandIntermediateBiasResearch element $eleTag stress response is unavailable after activation"
+        error "RIVASAND02 element $eleTag stress response is unavailable after activation"
     }
 }
 
@@ -112,7 +112,7 @@ foreach eleTag {1 2} {
 # surface stress without changing that already equilibrated skeleton stress.
 wipe
 model BasicBuilder -ndm 3 -ndf 4
-nDMaterial RIVASandIntermediateBiasResearch 8003 \
+nDMaterial RIVASAND02 8003 \
     $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 -nSub 1 -stressScale 1.0 \
     -pResidual 1.013 -geostaticAdmission -stage 1 \
@@ -139,7 +139,7 @@ foreach value [lrange $surfaceStress 0 2] {
 updateMaterialStage -material 8003 -stage 2
 set dynamicStage [lindex [eleResponse 3 stage] 0]
 if {$dynamicStage != 2.0} {
-    error "RIVASandIntermediateBiasResearch element reports stage=$dynamicStage after dynamic activation"
+    error "RIVASAND02 element reports stage=$dynamicStage after dynamic activation"
 }
 set dynamicStress [eleResponse 3 stress]
 foreach value [lrange $dynamicStress 0 2] {
@@ -148,4 +148,4 @@ foreach value [lrange $dynamicStress 0 2] {
     }
 }
 
-puts "PASS: every RIVASandIntermediateBiasResearch copy activated; pAnchors=$pressureAnchors kPa; translated-cone stress preserved through stages 1 and 2"
+puts "PASS: every RIVASAND02 copy activated; pAnchors=$pressureAnchors kPa; translated-cone stress preserved through stages 1 and 2"

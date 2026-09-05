@@ -2,7 +2,7 @@
 **    OpenSees - Open System for Earthquake Engineering Simulation    **
 ** ****************************************************************** */
 
-#include "RIVASandIntermediateBiasResearch.h"
+#include "RIVASAND02.h"
 
 #include <Channel.h>
 #include <FEM_ObjectBroker.h>
@@ -40,11 +40,11 @@ bool finiteVector(const Vector &value)
 } // namespace
 
 void *
-OPS_RIVASandIntermediateBiasResearchMaterial(void)
+OPS_RIVASAND02Material(void)
 {
     const int requiredValues = 11;
     if (OPS_GetNumRemainingInputArgs() < requiredValues + 1) {
-        opserr << "Want: nDMaterial RIVASandIntermediateBiasResearch tag Dr M kd h m zeta "
+        opserr << "Want: nDMaterial RIVASAND02 tag Dr M kd h m zeta "
                << "eMax eMin Q R nG <-rho value> <-nSub value> "
                << "<-stressScale value> <-pMin value> "
                << "<-tangentPMin value> <-pResidual value> "
@@ -57,14 +57,14 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
     int tag = 0;
     int count = 1;
     if (OPS_GetIntInput(&count, &tag) < 0) {
-        opserr << "WARNING invalid RIVASandIntermediateBiasResearch tag" << endln;
+        opserr << "WARNING invalid RIVASAND02 tag" << endln;
         return 0;
     }
 
     double values[requiredValues];
     count = requiredValues;
     if (OPS_GetDoubleInput(&count, values) < 0) {
-        opserr << "WARNING invalid RIVASandIntermediateBiasResearch material values for tag "
+        opserr << "WARNING invalid RIVASAND02 material values for tag "
                << tag << endln;
         return 0;
     }
@@ -89,7 +89,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
         if (std::strcmp(option, "-rho") == 0) {
             count = 1;
             if (OPS_GetDoubleInput(&count, &rho) < 0) {
-                opserr << "WARNING invalid -rho for RIVASandIntermediateBiasResearch tag "
+                opserr << "WARNING invalid -rho for RIVASAND02 tag "
                        << tag << endln;
                 return 0;
             }
@@ -97,14 +97,14 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
                    std::strcmp(option, "-noSubsteps") == 0) {
             count = 1;
             if (OPS_GetIntInput(&count, &fixedSubsteps) < 0) {
-                opserr << "WARNING invalid -nSub for RIVASandIntermediateBiasResearch tag "
+                opserr << "WARNING invalid -nSub for RIVASAND02 tag "
                        << tag << endln;
                 return 0;
             }
         } else if (std::strcmp(option, "-stressScale") == 0) {
             count = 1;
             if (OPS_GetDoubleInput(&count, &stressScale) < 0) {
-                opserr << "WARNING invalid -stressScale for RIVASandIntermediateBiasResearch tag "
+                opserr << "WARNING invalid -stressScale for RIVASAND02 tag "
                        << tag << endln;
                 return 0;
             }
@@ -112,7 +112,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
             count = 1;
             if (OPS_GetDoubleInput(&count, &pMin) < 0 ||
                 !std::isfinite(pMin) || !(pMin > 0.0)) {
-                opserr << "WARNING invalid -pMin for RIVASandIntermediateBiasResearch tag "
+                opserr << "WARNING invalid -pMin for RIVASAND02 tag "
                        << tag << "; value must be positive" << endln;
                 return 0;
             }
@@ -122,7 +122,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
                 !std::isfinite(tangentPressureFloor) ||
                 !(tangentPressureFloor > 0.0)) {
                 opserr << "WARNING invalid -tangentPMin for "
-                       << "RIVASandIntermediateBiasResearch tag " << tag
+                       << "RIVASAND02 tag " << tag
                        << "; value must be positive" << endln;
                 return 0;
             }
@@ -130,7 +130,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
             count = 1;
             if (OPS_GetDoubleInput(&count, &residualPressure) < 0 ||
                 !std::isfinite(residualPressure) || residualPressure < 0.0) {
-                opserr << "WARNING invalid -pResidual for RIVASandIntermediateBiasResearch tag "
+                opserr << "WARNING invalid -pResidual for RIVASAND02 tag "
                        << tag << "; value must be nonnegative" << endln;
                 return 0;
             }
@@ -147,7 +147,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
                 if (OPS_GetIntInput(&count, &requestedMode) < 0 ||
                     requestedMode < 0 || requestedMode > 2) {
                     opserr << "WARNING invalid -BiasVolume for "
-                           << "RIVASandIntermediateBiasResearch tag " << tag
+                           << "RIVASAND02 tag " << tag
                            << "; expected integer 0 (default), 1 (no bias volume), "
                            << "or 2 (field bias correction)" << endln;
                     return 0;
@@ -157,7 +157,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
             }
             if (biasVolumeMode >= 0 && biasVolumeMode != requestedMode) {
                 opserr << "WARNING conflicting bias-volume options for "
-                       << "RIVASandIntermediateBiasResearch tag " << tag
+                       << "RIVASAND02 tag " << tag
                        << "; select one -BiasVolume mode (legacy aliases: "
                        << "-noBiasVolume=1, -fieldBiasVolume=2)" << endln;
                 return 0;
@@ -166,7 +166,7 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
         } else if (std::strcmp(option, "-stage") == 0) {
             count = 1;
             if (OPS_GetIntInput(&count, &stage) < 0) {
-                opserr << "WARNING invalid -stage for RIVASandIntermediateBiasResearch tag "
+                opserr << "WARNING invalid -stage for RIVASAND02 tag "
                        << tag << endln;
                 return 0;
             }
@@ -175,14 +175,14 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
             double stress[6];
             count = 6;
             if (OPS_GetDoubleInput(&count, stress) < 0) {
-                opserr << "WARNING invalid -initialStress for RIVASandIntermediateBiasResearch tag "
+                opserr << "WARNING invalid -initialStress for RIVASAND02 tag "
                        << tag << endln;
                 return 0;
             }
             for (int i = 0; i < 6; ++i) initialStress(i) = stress[i];
             initialStressSpecified = true;
         } else {
-            opserr << "WARNING unknown RIVASandIntermediateBiasResearch option '" << option
+            opserr << "WARNING unknown RIVASAND02 option '" << option
                    << "' for tag " << tag << endln;
             return 0;
         }
@@ -191,19 +191,19 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
     if (initialStressSpecified && !stageSpecified) stage = 1;
     if (biasVolumeMode < 0) biasVolumeMode = 0;
     if (stage != 0 && !initialStressSpecified) {
-        opserr << "WARNING RIVASandIntermediateBiasResearch -stage 1 or 2 requires a compressive "
+        opserr << "WARNING RIVASAND02 -stage 1 or 2 requires a compressive "
                << "-initialStress; otherwise create at stage 0, establish "
                << "geostatic stress, and use updateMaterialStage" << endln;
         return 0;
     }
 
-    RIVASandIntermediateBiasResearch *material = new RIVASandIntermediateBiasResearch(
+    RIVASAND02 *material = new RIVASAND02(
         tag, values[0], values[1], values[2], values[3], values[4],
         values[5], values[6], values[7], values[8], values[9], values[10],
         rho, fixedSubsteps, stressScale, pMin, tangentPressureFloor,
         residualPressure, geostaticAdmission, stage, initialStress);
     if (material == 0 || !material->isValid()) {
-        opserr << "WARNING invalid RIVASandIntermediateBiasResearch material with tag "
+        opserr << "WARNING invalid RIVASAND02 material with tag "
                << tag << endln;
         delete material;
         return 0;
@@ -214,13 +214,13 @@ OPS_RIVASandIntermediateBiasResearchMaterial(void)
     return material;
 }
 
-RIVASandIntermediateBiasResearch::RIVASandIntermediateBiasResearch(
+RIVASAND02::RIVASAND02(
     int tag, double Dr, double M, double kd, double h, double m,
     double zeta, double eMax, double eMin, double Q, double R, double nG,
     double rho, int fixedSubsteps, double stressScale, double pMin,
     double tangentPressureFloor, double residualPressure,
     bool geostaticAdmission, int initialStage, const Vector &initialStress)
-    : NDMaterial(tag, ND_TAG_RIVASandIntermediateBiasResearch),
+    : NDMaterial(tag, ND_TAG_RIVASAND02),
       mDr(Dr), mRho(rho), mStressScale(stressScale),
       mTangentPressureFloor(0.0),
       mFixedSubsteps(fixedSubsteps), mStage(initialStage),
@@ -262,8 +262,8 @@ RIVASandIntermediateBiasResearch::RIVASandIntermediateBiasResearch(
     revertToStart();
 }
 
-RIVASandIntermediateBiasResearch::RIVASandIntermediateBiasResearch()
-    : NDMaterial(0, ND_TAG_RIVASandIntermediateBiasResearch),
+RIVASAND02::RIVASAND02()
+    : NDMaterial(0, ND_TAG_RIVASAND02),
       mDr(0.0), mRho(0.0), mStressScale(1.0),
       mTangentPressureFloor(0.0), mFixedSubsteps(1),
       mStage(0), mInitialStage(0), mValid(false),
@@ -291,18 +291,18 @@ RIVASandIntermediateBiasResearch::RIVASandIntermediateBiasResearch()
     mTangent = mInitialTangent;
 }
 
-RIVASandIntermediateBiasResearch::~RIVASandIntermediateBiasResearch()
+RIVASAND02::~RIVASAND02()
 {
 }
 
 void
-RIVASandIntermediateBiasResearch::setReferenceParameters(void)
+RIVASAND02::setReferenceParameters(void)
 {
     mParameters = riva_ib_reference_parameters(mStressScale);
 }
 
 void
-RIVASandIntermediateBiasResearch::setMaterialParameters(double M, double kd, double h,
+RIVASAND02::setMaterialParameters(double M, double kd, double h,
     double m, double zeta, double eMax, double eMin, double Q, double R,
     double nG)
 {
@@ -320,13 +320,13 @@ RIVASandIntermediateBiasResearch::setMaterialParameters(double M, double kd, dou
 }
 
 double
-RIVASandIntermediateBiasResearch::initialVoidRatio(void) const
+RIVASAND02::initialVoidRatio(void) const
 {
     return riva_void_ratio_from_material_relative_density(&mMaterial, mDr);
 }
 
 int
-RIVASandIntermediateBiasResearch::activateFromCommittedStress(void)
+RIVASAND02::activateFromCommittedStress(void)
 {
     tensor_t stress = stressToTensor(mCommittedStress);
     const double physicalPressure = riva_pressure(stress);
@@ -335,7 +335,7 @@ RIVASandIntermediateBiasResearch::activateFromCommittedStress(void)
         if (!mGeostaticAdmission ||
             !std::isfinite(physicalPressure) ||
             !std::isfinite(conePressure)) {
-            opserr << "RIVASandIntermediateBiasResearch tag " << this->getTag()
+            opserr << "RIVASAND02 tag " << this->getTag()
                    << " cannot enter a nonlinear stage: translated cone pressure "
                    << "p'+pResidual must exceed pMin"
                    << endln;
@@ -373,7 +373,7 @@ RIVASandIntermediateBiasResearch::activateFromCommittedStress(void)
 }
 
 int
-RIVASandIntermediateBiasResearch::beginDynamicFromCommittedState(void)
+RIVASAND02::beginDynamicFromCommittedState(void)
 {
     if (!mCommittedState.base.initialized) return -1;
     riva_ib_state_t state = mCommittedState;
@@ -389,7 +389,7 @@ RIVASandIntermediateBiasResearch::beginDynamicFromCommittedState(void)
 }
 
 tensor_t
-RIVASandIntermediateBiasResearch::strainIncrementToTensor(const Vector &increment)
+RIVASAND02::strainIncrementToTensor(const Vector &increment)
 {
     tensor_t result = {increment(0), increment(1), increment(2),
                            0.5*increment(3), 0.5*increment(4),
@@ -398,7 +398,7 @@ RIVASandIntermediateBiasResearch::strainIncrementToTensor(const Vector &incremen
 }
 
 tensor_t
-RIVASandIntermediateBiasResearch::stressToTensor(const Vector &stress)
+RIVASAND02::stressToTensor(const Vector &stress)
 {
     tensor_t result = {stress(0), stress(1), stress(2),
                            stress(3), stress(4), stress(5)};
@@ -406,7 +406,7 @@ RIVASandIntermediateBiasResearch::stressToTensor(const Vector &stress)
 }
 
 void
-RIVASandIntermediateBiasResearch::tensorToStress(tensor_t tensor, Vector &stress)
+RIVASAND02::tensorToStress(tensor_t tensor, Vector &stress)
 {
     stress(0) = tensor.xx;
     stress(1) = tensor.yy;
@@ -417,7 +417,7 @@ RIVASandIntermediateBiasResearch::tensorToStress(tensor_t tensor, Vector &stress
 }
 
 void
-RIVASandIntermediateBiasResearch::buildTangent(double bulk, double shear, Matrix &matrix) const
+RIVASAND02::buildTangent(double bulk, double shear, Matrix &matrix) const
 {
     matrix.Zero();
     const double lambda = bulk - 2.0*shear/3.0;
@@ -432,7 +432,7 @@ RIVASandIntermediateBiasResearch::buildTangent(double bulk, double shear, Matrix
 }
 
 void
-RIVASandIntermediateBiasResearch::updateTrialTangent(void)
+RIVASAND02::updateTrialTangent(void)
 {
     if (mStage != 0 && mTrialState.base.initialized) {
         double shear = 0.0;
@@ -463,7 +463,7 @@ RIVASandIntermediateBiasResearch::updateTrialTangent(void)
 }
 
 int
-RIVASandIntermediateBiasResearch::setTrialStrain(const Vector &strain)
+RIVASAND02::setTrialStrain(const Vector &strain)
 {
     if (!mValid || strain.Size() != 6 || !finiteVector(strain)) return -1;
     mTrialStrain = strain;
@@ -523,13 +523,13 @@ RIVASandIntermediateBiasResearch::setTrialStrain(const Vector &strain)
 }
 
 int
-RIVASandIntermediateBiasResearch::setTrialStrain(const Vector &strain, const Vector &rate)
+RIVASAND02::setTrialStrain(const Vector &strain, const Vector &rate)
 {
     return setTrialStrain(strain);
 }
 
 int
-RIVASandIntermediateBiasResearch::setTrialStrainIncr(const Vector &increment)
+RIVASAND02::setTrialStrainIncr(const Vector &increment)
 {
     if (increment.Size() != 6) return -1;
     Vector target = mTrialStrain;
@@ -538,44 +538,44 @@ RIVASandIntermediateBiasResearch::setTrialStrainIncr(const Vector &increment)
 }
 
 int
-RIVASandIntermediateBiasResearch::setTrialStrainIncr(const Vector &increment,
+RIVASAND02::setTrialStrainIncr(const Vector &increment,
                                   const Vector &rate)
 {
     return setTrialStrainIncr(increment);
 }
 
 const Vector &
-RIVASandIntermediateBiasResearch::getStress(void)
+RIVASAND02::getStress(void)
 {
     return mTrialStress;
 }
 
 const Vector &
-RIVASandIntermediateBiasResearch::getStrain(void)
+RIVASAND02::getStrain(void)
 {
     return mTrialStrain;
 }
 
 const Matrix &
-RIVASandIntermediateBiasResearch::getTangent(void)
+RIVASAND02::getTangent(void)
 {
     return mTangent;
 }
 
 const Matrix &
-RIVASandIntermediateBiasResearch::getInitialTangent(void)
+RIVASAND02::getInitialTangent(void)
 {
     return mInitialTangent;
 }
 
 double
-RIVASandIntermediateBiasResearch::getRho(void)
+RIVASAND02::getRho(void)
 {
     return mRho;
 }
 
 int
-RIVASandIntermediateBiasResearch::commitState(void)
+RIVASAND02::commitState(void)
 {
     mCommittedStrain = mTrialStrain;
     mCommittedStress = mTrialStress;
@@ -586,7 +586,7 @@ RIVASandIntermediateBiasResearch::commitState(void)
 }
 
 int
-RIVASandIntermediateBiasResearch::revertToLastCommit(void)
+RIVASAND02::revertToLastCommit(void)
 {
     mTrialStrain = mCommittedStrain;
     mTrialStress = mCommittedStress;
@@ -598,7 +598,7 @@ RIVASandIntermediateBiasResearch::revertToLastCommit(void)
 }
 
 int
-RIVASandIntermediateBiasResearch::revertToStart(void)
+RIVASAND02::revertToStart(void)
 {
     mStage = mInitialStage;
     mCommittedStrain.Zero();
@@ -616,41 +616,41 @@ RIVASandIntermediateBiasResearch::revertToStart(void)
 }
 
 NDMaterial *
-RIVASandIntermediateBiasResearch::getCopy(void)
+RIVASAND02::getCopy(void)
 {
-    return new RIVASandIntermediateBiasResearch(*this);
+    return new RIVASAND02(*this);
 }
 
 NDMaterial *
-RIVASandIntermediateBiasResearch::getCopy(const char *code)
+RIVASAND02::getCopy(const char *code)
 {
     if (std::strcmp(code, "ThreeDimensional") == 0 ||
         std::strcmp(code, "3D") == 0 ||
-        std::strcmp(code, "RIVASandIntermediateBiasResearch") == 0)
+        std::strcmp(code, "RIVASAND02") == 0)
         return getCopy();
     return 0;
 }
 
 const char *
-RIVASandIntermediateBiasResearch::getType(void) const
+RIVASAND02::getType(void) const
 {
     return "ThreeDimensional";
 }
 
 int
-RIVASandIntermediateBiasResearch::getOrder(void) const
+RIVASAND02::getOrder(void) const
 {
     return 6;
 }
 
 bool
-RIVASandIntermediateBiasResearch::isValid(void) const
+RIVASAND02::isValid(void) const
 {
     return mValid;
 }
 
 int
-RIVASandIntermediateBiasResearch::sendSelf(int commitTag, Channel &theChannel)
+RIVASAND02::sendSelf(int commitTag, Channel &theChannel)
 {
     Vector data(RIVASerializedSize);
     data.Zero();
@@ -694,7 +694,7 @@ RIVASandIntermediateBiasResearch::sendSelf(int commitTag, Channel &theChannel)
     data(180) = RIVA_IB_KERNEL_REVISION;
 
     if (theChannel.sendVector(this->getDbTag(), commitTag, data) < 0) {
-        opserr << "RIVASandIntermediateBiasResearch::sendSelf failed for tag "
+        opserr << "RIVASAND02::sendSelf failed for tag "
                << this->getTag() << endln;
         return -1;
     }
@@ -702,7 +702,7 @@ RIVASandIntermediateBiasResearch::sendSelf(int commitTag, Channel &theChannel)
 }
 
 int
-RIVASandIntermediateBiasResearch::restoreState(
+RIVASAND02::restoreState(
     const double values[RIVA_IB_STATE_VALUE_COUNT], int initialized,
     int geostaticAdmitted, riva_ib_state_t &state)
 {
@@ -782,16 +782,16 @@ RIVASandIntermediateBiasResearch::restoreState(
 }
 
 int
-RIVASandIntermediateBiasResearch::recvSelf(int commitTag, Channel &theChannel,
+RIVASAND02::recvSelf(int commitTag, Channel &theChannel,
                         FEM_ObjectBroker &theBroker)
 {
     Vector data(RIVASerializedSize);
     if (theChannel.recvVector(this->getDbTag(), commitTag, data) < 0) {
-        opserr << "RIVASandIntermediateBiasResearch::recvSelf failed" << endln;
+        opserr << "RIVASAND02::recvSelf failed" << endln;
         return -1;
     }
     if ((uint32_t)std::llround(data(180)) != RIVA_IB_KERNEL_REVISION) {
-        opserr << "RIVASandIntermediateBiasResearch::recvSelf incompatible "
+        opserr << "RIVASAND02::recvSelf incompatible "
                << "kernel revision " << data(180) << endln;
         return -1;
     }
@@ -851,7 +851,7 @@ RIVASandIntermediateBiasResearch::recvSelf(int commitTag, Channel &theChannel,
 }
 
 const Vector &
-RIVASandIntermediateBiasResearch::getStateVector(void)
+RIVASAND02::getStateVector(void)
 {
     double values[RIVA_IB_STATE_VALUE_COUNT] = {};
     riva_ib_state_values(&mTrialState, values);
@@ -861,7 +861,7 @@ RIVASandIntermediateBiasResearch::getStateVector(void)
 }
 
 const Vector &
-RIVASandIntermediateBiasResearch::getScalarResponse(int responseID)
+RIVASAND02::getScalarResponse(int responseID)
 {
     if (responseID == 4) {
         mScalarOutput(0) = mTrialState.base.initialized ?
@@ -897,7 +897,7 @@ RIVASandIntermediateBiasResearch::getScalarResponse(int responseID)
 }
 
 Response *
-RIVASandIntermediateBiasResearch::setResponse(const char **argv, int argc, OPS_Stream &output)
+RIVASAND02::setResponse(const char **argv, int argc, OPS_Stream &output)
 {
     if (argc < 1) return 0;
     if (std::strcmp(argv[0], "stress") == 0 ||
@@ -935,7 +935,7 @@ RIVASandIntermediateBiasResearch::setResponse(const char **argv, int argc, OPS_S
 }
 
 int
-RIVASandIntermediateBiasResearch::getResponse(int responseID, Information &materialInfo)
+RIVASAND02::getResponse(int responseID, Information &materialInfo)
 {
     if (responseID == 1) return materialInfo.setVector(getStress());
     if (responseID == 2) return materialInfo.setVector(getStrain());
@@ -946,7 +946,7 @@ RIVASandIntermediateBiasResearch::getResponse(int responseID, Information &mater
 }
 
 int
-RIVASandIntermediateBiasResearch::setParameter(const char **argv, int argc,
+RIVASAND02::setParameter(const char **argv, int argc,
                             Parameter &parameter)
 {
     if (argc < 2 || std::atoi(argv[1]) != this->getTag()) return -1;
@@ -960,7 +960,7 @@ RIVASandIntermediateBiasResearch::setParameter(const char **argv, int argc,
 }
 
 int
-RIVASandIntermediateBiasResearch::updateParameter(int responseID, Information &information)
+RIVASAND02::updateParameter(int responseID, Information &information)
 {
     if (responseID == StageParameter) {
         const int requested = information.theInt;
@@ -999,9 +999,9 @@ RIVASandIntermediateBiasResearch::updateParameter(int responseID, Information &i
 }
 
 void
-RIVASandIntermediateBiasResearch::Print(OPS_Stream &output, int flag)
+RIVASAND02::Print(OPS_Stream &output, int flag)
 {
-    output << "RIVASandIntermediateBiasResearch, tag: " << this->getTag() << endln;
+    output << "RIVASAND02, tag: " << this->getTag() << endln;
     output << "  Dr=" << mDr << " M=" << mMaterial.M
            << " kd=" << mMaterial.kd << " h=" << mMaterial.h
            << " m=" << mMaterial.m << " zeta=" << mMaterial.zeta

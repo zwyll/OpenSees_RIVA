@@ -1,10 +1,21 @@
-# RIVA-Sand intermediate-bias research material
+# RIVASAND02 OpenSees material
 
-This directory exercises the separately named OpenSees research material
-`RIVASandIntermediateBiasResearch`. It is the native implementation of the
-constitutive successor developed on
-`research/rivasand-intermediate-bias-plastic-gate`.
-It does not replace or modify the frozen production `RIVASand` material.
+`RIVASAND02` is the OpenSees name of the intermediate-bias successor to
+`RIVASand`, previously named `RIVASandIntermediateBiasResearch`. The `02`
+identifies this successor; it does not refer to the historical PJ-Liq V2 model.
+The original `RIVASand` material remains available separately.
+
+To migrate an input script, replace `nDMaterial RIVASandIntermediateBiasResearch`
+with `nDMaterial RIVASAND02`. The old command is no longer registered. All
+positional parameters, options (including `-BiasVolume 0|1|2`), recorders, and
+stage-0/1/2 behavior are unchanged. The class tag remains 14028 and the kernel
+restart revision remains 4, so existing revision-4 databases can be restored
+by the renamed material. Earlier revision-3 databases remain incompatible.
+
+This rename preserves the constitutive equations, calibration, and accepted
+histories from `research/rivasand-field-bias-volume`; it does not expand their
+validation scope. The reported limitations of the field correction (mode 2)
+still apply.
 
 This branch appends a completed-half-cycle plastic-activity memory to the
 research state. It gates only the inherited reversible bias wave, and dynamic
@@ -15,7 +26,7 @@ it is intentionally incompatible with revision-3 restart files.
 ## Command
 
 ```tcl
-nDMaterial RIVASandIntermediateBiasResearch tag Dr M kd h m zeta \
+nDMaterial RIVASAND02 tag Dr M kd h m zeta \
     eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
     <-pMin value> <-tangentPMin value> <-pResidual value> \
@@ -33,7 +44,7 @@ The Ottawa F65 reference values used by the verification cases are:
 
 ```tcl
 set Dr 0.662
-nDMaterial RIVASandIntermediateBiasResearch 8001 \
+nDMaterial RIVASAND02 8001 \
     $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 \
     -nSub 1 -stressScale 1.0
@@ -170,22 +181,22 @@ After building OpenSees, run:
 
 ```sh
 ./build-riva-ib/OpenSees \
-  EXAMPLES/RIVASandIntermediateBiasResearch/tests/RIVASandIntermediateBiasResearch_stage_activation.tcl
+  EXAMPLES/RIVASAND02/tests/RIVASAND02_stage_activation.tcl
 
 ./build-riva-ib/OpenSees \
-  EXAMPLES/RIVASandIntermediateBiasResearch/RIVASandIntermediateBiasResearch_material_point.tcl
+  EXAMPLES/RIVASAND02/RIVASAND02_material_point.tcl
 
 ./build-riva-ib/OpenSees \
-  EXAMPLES/RIVASandIntermediateBiasResearch/tests/RIVASandIntermediateBiasResearch_restart.tcl
+  EXAMPLES/RIVASAND02/tests/RIVASAND02_restart.tcl
 
 ./build-riva-ib/OpenSees \
-  EXAMPLES/RIVASandIntermediateBiasResearch/tests/RIVASandIntermediateBiasResearch_no_bias_volume.tcl
+  EXAMPLES/RIVASAND02/tests/RIVASAND02_no_bias_volume.tcl
 
 ./build-riva-ib/OpenSees \
-  EXAMPLES/RIVASandIntermediateBiasResearch/tests/RIVASandIntermediateBiasResearch_bias_volume_modes.tcl
+  EXAMPLES/RIVASAND02/tests/RIVASAND02_bias_volume_modes.tcl
 ```
 
-The standalone replay in `tests/RIVASandIntermediateBiasResearchNativeReplay.cpp`
+The standalone replay in `tests/RIVASAND02NativeReplay.cpp`
 compares the allocation-free native kernel against the private six-history
 handoff oracle without using Python at runtime.
 
@@ -208,7 +219,7 @@ The standalone state-contract test can be built without OpenSees libraries:
 
 ```sh
 c++ -std=c++17 -O2 \
-  EXAMPLES/RIVASandIntermediateBiasResearch/tests/RIVASandIntermediateBiasResearchKernelStateTest.cpp \
-  -o RIVASandIntermediateBiasResearchKernelStateTest
-./RIVASandIntermediateBiasResearchKernelStateTest
+  EXAMPLES/RIVASAND02/tests/RIVASAND02KernelStateTest.cpp \
+  -o RIVASAND02KernelStateTest
+./RIVASAND02KernelStateTest
 ```

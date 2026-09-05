@@ -42,7 +42,7 @@ model BasicBuilder -ndm 3 -ndf 3
 
 set matTag 8010
 set Dr [expr {(0.78-0.601)/(0.78-0.51)}]
-nDMaterial RIVASandIntermediateBiasResearch $matTag \
+nDMaterial RIVASAND02 $matTag \
     $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 -nSub 4 -stressScale 1.0 \
     -reversalLatch -fieldBiasVolume \
@@ -82,7 +82,7 @@ if {[llength $checkpointState] != 139 ||
     error "checkpoint did not contain the revision-4 activity states"
 }
 
-set databasePrefix [file join [pwd] RIVASandIntermediateBiasResearch_restart_db]
+set databasePrefix [file join [pwd] RIVASAND02_restart_db]
 foreach path [glob -nocomplain ${databasePrefix}*] { file delete -force $path }
 database File $databasePrefix
 save 101
@@ -110,4 +110,4 @@ assertVectorsClose $restartedStress $baselineStress 1.0e-13 "restart stress"
 
 wipe
 foreach path [glob -nocomplain ${databasePrefix}*] { file delete -force $path }
-puts "PASS: revision-4 RIVASandIntermediateBiasResearch save/restore and serialized reversal-latch/field-bias continuity"
+puts "PASS: revision-4 RIVASAND02 save/restore and serialized reversal-latch/field-bias continuity"

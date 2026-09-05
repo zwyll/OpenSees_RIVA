@@ -1,12 +1,12 @@
-/* Standalone prescribed-strain replay for the intermediate-bias RIVA-Sand
+/* Standalone prescribed-strain replay for the RIVASAND02
  * research successor.  The executable consumes only frozen input_paths CSVs
  * and writes the complete 237-column oracle schema.  It never reads golden
  * response files and has no Python runtime dependency.
  *
  * Usage:
- *   riva_sand_intermediate_bias_research_native_driver INPUT_DIR OUTPUT_DIR
+ *   RIVASAND02NativeReplay INPUT_DIR OUTPUT_DIR
  */
-#include "../../../SRC/material/nD/RIVASandIntermediateBiasResearch/RIVASandIntermediateBiasResearchKernel.h"
+#include "../../../SRC/material/nD/RIVASAND02/RIVASAND02Kernel.h"
 
 #include <cmath>
 #include <cstdint>
@@ -666,7 +666,7 @@ int main(int argc, char **argv)
         for (const CaseDefinition &definition : kCases)
             replay_case(definition, input_directory, output_directory, header);
     } catch (const std::exception &error) {
-        std::cerr << "RIVASandIntermediateBiasResearch replay failed: "
+        std::cerr << "RIVASAND02 replay failed: "
                   << error.what() << '\n';
         return 1;
     }

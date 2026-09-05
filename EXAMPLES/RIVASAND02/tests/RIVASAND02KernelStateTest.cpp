@@ -1,5 +1,5 @@
 /* Standalone state and reversal-contract checks for the research kernel. */
-#include "../../../SRC/material/nD/RIVASandIntermediateBiasResearch/RIVASandIntermediateBiasResearchKernel.h"
+#include "../../../SRC/material/nD/RIVASAND02/RIVASAND02Kernel.h"
 
 #include <array>
 #include <cmath>

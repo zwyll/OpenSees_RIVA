@@ -2,14 +2,14 @@
 **    OpenSees - Open System for Earthquake Engineering Simulation    **
 ** ****************************************************************** */
 
-#ifndef RIVASandIntermediateBiasResearch_h
-#define RIVASandIntermediateBiasResearch_h
+#ifndef RIVASAND02_h
+#define RIVASAND02_h
 
 #include <NDMaterial.h>
 #include <Matrix.h>
 #include <Vector.h>
 
-#include "RIVASandIntermediateBiasResearchKernel.h"
+#include "RIVASAND02Kernel.h"
 
 class Channel;
 class FEM_ObjectBroker;
@@ -17,18 +17,18 @@ class Information;
 class Parameter;
 class Response;
 
-class RIVASandIntermediateBiasResearch : public NDMaterial
+class RIVASAND02 : public NDMaterial
 {
 public:
-    RIVASandIntermediateBiasResearch(int tag, double Dr, double M, double kd, double h,
+    RIVASAND02(int tag, double Dr, double M, double kd, double h,
                   double m, double zeta, double eMax, double eMin,
                   double Q, double R, double nG, double rho,
                   int fixedSubsteps, double stressScale, double pMin,
                   double tangentPressureFloor, double residualPressure,
                   bool geostaticAdmission, int initialStage,
                   const Vector &initialStress);
-    RIVASandIntermediateBiasResearch();
-    virtual ~RIVASandIntermediateBiasResearch();
+    RIVASAND02();
+    virtual ~RIVASAND02();
 
     int setTrialStrain(const Vector &strain);
     int setTrialStrain(const Vector &strain, const Vector &rate);
@@ -132,6 +132,6 @@ private:
     Vector mScalarOutput;
 };
 
-void *OPS_RIVASandIntermediateBiasResearchMaterial(void);
+void *OPS_RIVASAND02Material(void);
 
 #endif

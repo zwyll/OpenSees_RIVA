@@ -1,6 +1,6 @@
 include ../../../../Makefile.def
 
-OBJS = RIVASandIntermediateBiasResearch.o
+OBJS = RIVASAND02.o
 
 all: $(OBJS)
 
