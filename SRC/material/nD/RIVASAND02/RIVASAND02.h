@@ -2,14 +2,14 @@
 **    OpenSees - Open System for Earthquake Engineering Simulation    **
 ** ****************************************************************** */
 
-#ifndef RIVASand_h
-#define RIVASand_h
+#ifndef RIVASAND02_h
+#define RIVASAND02_h
 
 #include <NDMaterial.h>
 #include <Matrix.h>
 #include <Vector.h>
 
-#include "RIVASandKernel.h"
+#include "RIVASAND02Kernel.h"
 
 class Channel;
 class FEM_ObjectBroker;
@@ -17,18 +17,18 @@ class Information;
 class Parameter;
 class Response;
 
-class RIVASand : public NDMaterial
+class RIVASAND02 : public NDMaterial
 {
 public:
-    RIVASand(int tag, double Dr, double M, double kd, double h,
+    RIVASAND02(int tag, double Dr, double M, double kd, double h,
                   double m, double zeta, double eMax, double eMin,
                   double Q, double R, double nG, double rho,
                   int fixedSubsteps, double stressScale, double pMin,
                   double tangentPressureFloor, double residualPressure,
                   bool geostaticAdmission, int initialStage,
                   const Vector &initialStress);
-    RIVASand();
-    virtual ~RIVASand();
+    RIVASAND02();
+    virtual ~RIVASAND02();
 
     int setTrialStrain(const Vector &strain);
     int setTrialStrain(const Vector &strain, const Vector &rate);
@@ -61,6 +61,13 @@ public:
     void Print(OPS_Stream &output, int flag = 0);
 
     bool isValid(void) const;
+    void setReversalLatch(bool on) { mReversalLatch = on; }
+    void setFieldBiasMeanCorrection(bool on) {
+        mParameters.field_bias_mean_correction_enabled = on ? 1 : 0;
+    }
+    void setBiasReversibleVolumeEnabled(bool on) {
+        mParameters.base.bias_reversible_volume_enabled = on ? 1 : 0;
+    }
 
 private:
     enum {
@@ -73,17 +80,24 @@ private:
                                double zeta, double eMax, double eMin,
                                double Q, double R, double nG);
     int activateFromCommittedStress(void);
+    int beginDynamicFromCommittedState(void);
     void buildTangent(double bulk, double shear, Matrix &matrix) const;
     void updateTrialTangent(void);
     double initialVoidRatio(void) const;
+    // Derived from the existing serialized flags; no additional restart state.
+    int getBiasVolumeMode(void) const {
+        return !mParameters.base.bias_reversible_volume_enabled ? 1 :
+            (mParameters.field_bias_mean_correction_enabled ? 2 : 0);
+    }
     const Vector &getStateVector(void);
     const Vector &getScalarResponse(int responseID);
 
-    static riva_tensor_t strainIncrementToTensor(const Vector &increment);
-    static riva_tensor_t stressToTensor(const Vector &stress);
-    static void tensorToStress(riva_tensor_t tensor, Vector &stress);
-    static int restoreState(const double values[RIVA_STATE_VALUE_COUNT],
-                            int initialized, riva_state_t &state);
+    static riva_ib_native::tensor_t strainIncrementToTensor(const Vector &increment);
+    static riva_ib_native::tensor_t stressToTensor(const Vector &stress);
+    static void tensorToStress(riva_ib_native::tensor_t tensor, Vector &stress);
+    static int restoreState(const double values[RIVA_IB_STATE_VALUE_COUNT],
+                            int initialized, int geostaticAdmitted,
+                            riva_ib_native::riva_ib_state_t &state);
 
     double mDr;
     double mRho;
@@ -93,11 +107,19 @@ private:
     int mStage;
     int mInitialStage;
     bool mValid;
+    bool mGeostaticAdmission;
+    /* Freeze one host-level reversal decision across the trial evaluations
+     * belonging to a single OpenSees load step. The enabled setting is
+     * serialized; the transient decision is cleared at every committed or
+     * restored state. */
+    bool mReversalLatch;
+    bool mLatchValid;
+    int mLatchedReversal;
 
-    riva_parameters_t mParameters;
-    riva_material_parameters_t mMaterial;
-    riva_state_t mCommittedState;
-    riva_state_t mTrialState;
+    riva_ib_native::riva_ib_parameters_t mParameters;
+    riva_ib_native::riva_material_parameters_t mMaterial;
+    riva_ib_native::riva_ib_state_t mCommittedState;
+    riva_ib_native::riva_ib_state_t mTrialState;
 
     Vector mInitialStress;
     Vector mCommittedStrain;
@@ -110,6 +132,6 @@ private:
     Vector mScalarOutput;
 };
 
-void *OPS_RIVASandMaterial(void);
+void *OPS_RIVASAND02Material(void);
 
 #endif

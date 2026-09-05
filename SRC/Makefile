@@ -1011,6 +1011,7 @@ MATERIAL_LIBS   =  $(FE)/material/Material.o \
 	$(FE)/material/nD/UWmaterials/PM4Silt.o \
 	$(FE)/material/nD/UWmaterials/LinearElasticGGmax.o \
 	$(FE)/material/nD/RIVASand/RIVASand.o \
+	$(FE)/material/nD/RIVASAND02/RIVASAND02.o \
 	$(FE)/material/nD/UANDESmaterials/SAniSandMS.o \
 	$(FE)/material/nD/UANDESmaterials/SAniSandMS3D.o \
 	$(FE)/material/nD/UANDESmaterials/SAniSandMSPlaneStrain.o \
