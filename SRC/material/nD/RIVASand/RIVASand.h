@@ -20,7 +20,7 @@ class Response;
 class RIVASand : public NDMaterial
 {
 public:
-    RIVASand(int tag, double Dr, double M, double kd, double h,
+    RIVASand(int tag, double Dr, double G0, double M, double kd, double h,
                   double m, double zeta, double eMax, double eMin,
                   double Q, double R, double nG, double rho,
                   int fixedSubsteps, double stressScale, double pMin,
@@ -69,7 +69,7 @@ private:
     };
 
     void setReferenceParameters(void);
-    void setMaterialParameters(double M, double kd, double h, double m,
+    void setMaterialParameters(double G0, double M, double kd, double h, double m,
                                double zeta, double eMax, double eMin,
                                double Q, double R, double nG);
     int activateFromCommittedStress(void);
@@ -86,6 +86,7 @@ private:
                             int initialized, riva_state_t &state);
 
     double mDr;
+    double mG0;
     double mRho;
     double mStressScale;
     double mTangentPressureFloor;

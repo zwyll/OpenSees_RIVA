@@ -34,6 +34,7 @@ typedef struct riva_tensor_t {
 } riva_tensor_t;
 typedef struct riva_material_parameters_t {
     double h, m, M, kd, zeta, e_max, e_min, Q, R, n_G;
+    double E_ref; /* cached dimensional scale from the external G0 */
 } riva_material_parameters_t;
 
 #if defined(__CUDACC__)
@@ -269,6 +270,7 @@ RIVA_HD static inline riva_material_parameters_t riva_reference_material_paramet
     const riva_parameters_t *p)
 {
     riva_material_parameters_t material = {};
+    material.E_ref=p->E_ref;
     material.h=p->h; material.m=p->m; material.M=p->M;
     material.kd=p->kd; material.zeta=p->zeta;
     material.e_max=p->e_max; material.e_min=p->e_min;
@@ -276,10 +278,24 @@ RIVA_HD static inline riva_material_parameters_t riva_reference_material_paramet
     return material;
 }
 
+/* Dimensionless stiffness coefficient at p_ref. Preserve the frozen binary
+ * scale exactly for the reference input (also in Pa); all other G0 values
+ * use E_ref=2(1+nu) G0 p_ref. This conversion is setup-only. */
+#ifndef RIVA_REFERENCE_G0
+#define RIVA_REFERENCE_G0 483.48301127222084
+#endif
+RIVA_HD static inline void riva_material_set_G0(
+    const riva_parameters_t *p,riva_material_parameters_t *material,double G0)
+{
+    material->E_ref = G0 == RIVA_REFERENCE_G0 ? p->E_ref :
+        2.0*(1.0+p->nu)*G0*p->p_ref;
+}
+
 RIVA_HD static inline int riva_material_parameters_valid(
     const riva_parameters_t *p,const riva_material_parameters_t *material)
 {
-    return material && isfinite(material->h) && material->h>0.0 &&
+    return material && isfinite(material->E_ref) && material->E_ref>0.0 &&
+        isfinite(material->h) && material->h>0.0 &&
         isfinite(material->m) && material->m>=0.0 &&
         isfinite(material->M) && material->M>0.0 &&
         isfinite(material->kd) && material->kd>0.0 &&
@@ -367,7 +383,7 @@ RIVA_HD static inline void riva_moduli(const riva_parameters_t *p,
     double *shear,double *bulk)
 {
     const double ratio=riva_max(pressure,riva_cone_pressure_floor(p))/p->p_ref;
-    const double young=p->E_ref*pow(ratio,material->n_G);
+    const double young=material->E_ref*pow(ratio,material->n_G);
     *shear=young/(2.0*(1.0+p->nu));
     *bulk=young/(3.0*(1.0-2.0*p->nu));
 }

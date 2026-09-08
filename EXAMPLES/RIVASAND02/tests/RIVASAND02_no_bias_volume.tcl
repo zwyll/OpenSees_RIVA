@@ -19,7 +19,7 @@ foreach path [glob -nocomplain ${databasePrefix}*] { file delete -force $path }
 wipe
 model BasicBuilder -ndm 3 -ndf 3
 nDMaterial RIVASAND02 8020 \
-    $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
+    $Dr 483.48301127222084 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 -stressScale 1.0
 makeBrick 8020
 set defaultFlag [lindex [eleResponse 1 material 1 noBiasVolume] 0]
@@ -29,7 +29,7 @@ if {$defaultFlag != 0.0} {
 
 set conflictRejected [catch {
     nDMaterial RIVASAND02 8022 \
-        $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
+        $Dr 483.48301127222084 1.25 1.125 122.44207260468994 0.945 0.025 \
         0.78 0.51 10.0 1.5 0.65 -stressScale 1.0 \
         -fieldBiasVolume -noBiasVolume
 }]
@@ -41,7 +41,7 @@ if {!$conflictRejected} {
 wipe
 model BasicBuilder -ndm 3 -ndf 3
 nDMaterial RIVASAND02 8021 \
-    $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
+    $Dr 483.48301127222084 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 -stressScale 1.0 -noBiasVolume
 makeBrick 8021
 set copiedFlag [lindex [eleResponse 1 material 1 noBiasVolume] 0]

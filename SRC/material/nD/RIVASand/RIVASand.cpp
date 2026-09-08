@@ -18,7 +18,8 @@
 
 namespace {
 
-const int RIVASerializedSize = 133;
+const int RIVASerializedSize = 135;
+const int RIVAAdapterRevision = 1; // required G0 input and serialized stiffness
 
 bool finiteVector(const Vector &value)
 {
@@ -32,9 +33,9 @@ bool finiteVector(const Vector &value)
 void *
 OPS_RIVASandMaterial(void)
 {
-    const int requiredValues = 11;
+    const int requiredValues = 12;
     if (OPS_GetNumRemainingInputArgs() < requiredValues + 1) {
-        opserr << "Want: nDMaterial RIVASand tag Dr M kd h m zeta "
+        opserr << "Want: nDMaterial RIVASand tag Dr G0 M kd h m zeta "
                << "eMax eMin Q R nG <-rho value> <-nSub value> "
                << "<-stressScale value> <-pMin value> "
                << "<-tangentPMin value> <-pResidual value> "
@@ -158,7 +159,7 @@ OPS_RIVASandMaterial(void)
 
     RIVASand *material = new RIVASand(
         tag, values[0], values[1], values[2], values[3], values[4],
-        values[5], values[6], values[7], values[8], values[9], values[10],
+        values[5], values[6], values[7], values[8], values[9], values[10], values[11],
         rho, fixedSubsteps, stressScale, pMin, tangentPressureFloor,
         residualPressure, geostaticAdmission, stage, initialStress);
     if (material == 0 || !material->isValid()) {
@@ -171,13 +172,13 @@ OPS_RIVASandMaterial(void)
 }
 
 RIVASand::RIVASand(
-    int tag, double Dr, double M, double kd, double h, double m,
+    int tag, double Dr, double G0, double M, double kd, double h, double m,
     double zeta, double eMax, double eMin, double Q, double R, double nG,
     double rho, int fixedSubsteps, double stressScale, double pMin,
     double tangentPressureFloor, double residualPressure,
     bool geostaticAdmission, int initialStage, const Vector &initialStress)
     : NDMaterial(tag, ND_TAG_RIVASand),
-      mDr(Dr), mRho(rho), mStressScale(stressScale),
+      mDr(Dr), mG0(G0), mRho(rho), mStressScale(stressScale),
       mTangentPressureFloor(0.0),
       mFixedSubsteps(fixedSubsteps), mStage(initialStage),
       mInitialStage(initialStage), mValid(true),
@@ -196,7 +197,7 @@ RIVASand::RIVASand(
         tangentPressureFloor : mParameters.p_ref/200.0;
     mTangentPressureFloor = riva_max(
         mTangentPressureFloor, mParameters.p_min);
-    setMaterialParameters(M, kd, h, m, zeta, eMax, eMin, Q, R, nG);
+    setMaterialParameters(G0, M, kd, h, m, zeta, eMax, eMin, Q, R, nG);
 
     if (!(mStressScale > 0.0) || !(mRho >= 0.0) ||
         mFixedSubsteps < 1 || (mStage != 0 && mStage != 1) ||
@@ -211,15 +212,15 @@ RIVASand::RIVASand(
         mValid = false;
     }
 
-    const double shear = mParameters.E_ref/(2.0*(1.0+mParameters.nu));
-    const double bulk = mParameters.E_ref/(3.0*(1.0-2.0*mParameters.nu));
+    const double shear = mMaterial.E_ref/(2.0*(1.0+mParameters.nu));
+    const double bulk = mMaterial.E_ref/(3.0*(1.0-2.0*mParameters.nu));
     buildTangent(bulk, shear, mInitialTangent);
     revertToStart();
 }
 
 RIVASand::RIVASand()
     : NDMaterial(0, ND_TAG_RIVASand),
-      mDr(0.0), mRho(0.0), mStressScale(1.0),
+      mDr(0.0), mG0(RIVA_REFERENCE_G0), mRho(0.0), mStressScale(1.0),
       mTangentPressureFloor(0.0), mFixedSubsteps(1),
       mStage(0), mInitialStage(0), mValid(false),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
@@ -238,8 +239,8 @@ RIVASand::RIVASand()
     mTangentPressureFloor = riva_max(
         mParameters.p_ref/200.0, mParameters.p_min);
     mMaterial = riva_reference_material_parameters(&mParameters);
-    const double shear = mParameters.E_ref/(2.0*(1.0+mParameters.nu));
-    const double bulk = mParameters.E_ref/(3.0*(1.0-2.0*mParameters.nu));
+    const double shear = mMaterial.E_ref/(2.0*(1.0+mParameters.nu));
+    const double bulk = mMaterial.E_ref/(3.0*(1.0-2.0*mParameters.nu));
     buildTangent(bulk, shear, mInitialTangent);
     mTangent = mInitialTangent;
 }
@@ -255,11 +256,13 @@ RIVASand::setReferenceParameters(void)
 }
 
 void
-RIVASand::setMaterialParameters(double M, double kd, double h,
+RIVASand::setMaterialParameters(double G0, double M, double kd, double h,
     double m, double zeta, double eMax, double eMin, double Q, double R,
     double nG)
 {
     mMaterial = riva_reference_material_parameters(&mParameters);
+    mG0 = G0;
+    riva_material_set_G0(&mParameters, &mMaterial, G0);
     mMaterial.M = M;
     mMaterial.kd = kd;
     mMaterial.h = h;
@@ -593,6 +596,8 @@ RIVASand::sendSelf(int commitTag, Channel &theChannel)
     data(131) = mParameters.p_residual;
     data(132) = mParameters.geostatic_admission_enabled;
 
+    data(133) = mG0;
+    data(134) = RIVAAdapterRevision;
     if (theChannel.sendVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASand::sendSelf failed for tag "
                << this->getTag() << endln;
@@ -658,6 +663,11 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
         opserr << "RIVASand::recvSelf failed" << endln;
         return -1;
     }
+    if (data.Size() != RIVASerializedSize ||
+        data(134) != RIVAAdapterRevision) {
+        opserr << "RIVASand::recvSelf incompatible pre-G0 checkpoint; rerun initialization" << endln;
+        return -1;
+    }
     this->setTag((int)data(0));
     mDr = data(1);
     mStressScale = data(2);
@@ -672,7 +682,7 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
     mParameters.geostatic_admission_enabled =
         (int32_t)std::llround(data(132));
     mTangentPressureFloor = riva_max(data(130), mParameters.p_min);
-    setMaterialParameters(data(13), data(14), data(15), data(16), data(17),
+    setMaterialParameters(data(133), data(13), data(14), data(15), data(16), data(17),
                           data(18), data(19), data(20), data(21), data(22));
     for (int i = 0; i < 6; ++i) mCommittedStrain(i) = data(23+i);
     for (int i = 0; i < 6; ++i) mCommittedStress(i) = data(29+i);
@@ -694,8 +704,8 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
         finiteVector(mInitialStress) &&
         riva_material_parameters_valid(&mParameters, &mMaterial) &&
         (mStage == 0 || mCommittedState.initialized);
-    const double shear = mParameters.E_ref/(2.0*(1.0+mParameters.nu));
-    const double bulk = mParameters.E_ref/(3.0*(1.0-2.0*mParameters.nu));
+    const double shear = mMaterial.E_ref/(2.0*(1.0+mParameters.nu));
+    const double bulk = mMaterial.E_ref/(3.0*(1.0-2.0*mParameters.nu));
     buildTangent(bulk, shear, mInitialTangent);
     mTrialStrain = mCommittedStrain;
     mTrialStress = mCommittedStress;
@@ -736,6 +746,10 @@ RIVASand::getScalarResponse(int responseID)
         mScalarOutput(0) = mTangentPressureFloor;
     } else if (responseID == 10) {
         mScalarOutput(0) = (double)mStage;
+    } else if (responseID == 15) {
+        mScalarOutput(0) = mG0;
+    } else if (responseID == 16) {
+        mScalarOutput(0) = mMaterial.E_ref/(2.0*(1.0+mParameters.nu));
     }
     return mScalarOutput;
 }
@@ -744,6 +758,10 @@ Response *
 RIVASand::setResponse(const char **argv, int argc, OPS_Stream &output)
 {
     if (argc < 1) return 0;
+    if (std::strcmp(argv[0], "G0") == 0)
+        return new MaterialResponse(this, 15, getScalarResponse(15));
+    if (std::strcmp(argv[0], "Gref") == 0)
+        return new MaterialResponse(this, 16, getScalarResponse(16));
     if (std::strcmp(argv[0], "stress") == 0 ||
         std::strcmp(argv[0], "stresses") == 0)
         return new MaterialResponse(this, 1, getStress());
@@ -776,6 +794,8 @@ RIVASand::getResponse(int responseID, Information &materialInfo)
     if (responseID == 2) return materialInfo.setVector(getStrain());
     if (responseID == 3) return materialInfo.setVector(getStateVector());
     if (responseID >= 4 && responseID <= 10)
+        return materialInfo.setVector(getScalarResponse(responseID));
+    if (responseID == 15 || responseID == 16)
         return materialInfo.setVector(getScalarResponse(responseID));
     return NDMaterial::getResponse(responseID, materialInfo);
 }
@@ -825,7 +845,7 @@ void
 RIVASand::Print(OPS_Stream &output, int flag)
 {
     output << "RIVASand, tag: " << this->getTag() << endln;
-    output << "  Dr=" << mDr << " M=" << mMaterial.M
+    output << "  Dr=" << mDr << " G0=" << mG0 << " M=" << mMaterial.M
            << " kd=" << mMaterial.kd << " h=" << mMaterial.h
            << " m=" << mMaterial.m << " zeta=" << mMaterial.zeta
            << " eMax=" << mMaterial.e_max << " eMin=" << mMaterial.e_min

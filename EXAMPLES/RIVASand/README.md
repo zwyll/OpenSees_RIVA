@@ -11,7 +11,7 @@ and channel serialization.
 ## Command
 
 ```tcl
-nDMaterial RIVASand tag Dr M kd h m zeta eMax eMin Q R nG \
+nDMaterial RIVASand tag Dr G0 M kd h m zeta eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
     <-pMin value> <-tangentPMin value> <-stage 0|1> \
     <-initialStress sxx syy szz sxy syz sxz>
@@ -20,8 +20,8 @@ nDMaterial RIVASand tag Dr M kd h m zeta eMax eMin Q R nG \
 The reference Ottawa F65 row is
 
 ```text
-Dr M kd h m zeta eMax eMin Q R nG
-0.662962962962963 1.25 1.125 122.44207260468994 0.945 0.025 0.78 0.51 10 1.5 0.65
+Dr G0 M kd h m zeta eMax eMin Q R nG
+0.662962962962963 483.48301127222084 1.25 1.125 122.44207260468994 0.945 0.025 0.78 0.51 10 1.5 0.65
 ```
 
 `Dr` is a fraction in `[0,1]`, not percent. The initial internal void ratio is
@@ -29,6 +29,10 @@ Dr M kd h m zeta eMax eMin Q R nG
 ```text
 e0 = eMax - Dr (eMax-eMin).
 ```
+
+G0 is a required, positive, dimensionless stiffness coefficient, identical
+in Pa and kPa inputs. See [G0 input migration and verification](../RIVASAND02/G0_INPUT_VALIDATION.md)
+for updated input, database compatibility, and tests of both generations.
 
 The normal OpenSees sign convention is used: tensile normal stress is positive
 and a compressive `-initialStress` is negative. The strain vector is

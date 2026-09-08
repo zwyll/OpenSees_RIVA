@@ -5,12 +5,19 @@
 identifies this successor; it does not refer to the historical PJ-Liq V2 model.
 The original `RIVASand` material remains available separately.
 
-To migrate an input script, replace `nDMaterial RIVASandIntermediateBiasResearch`
-with `nDMaterial RIVASAND02`. The old command is no longer registered. All
-positional parameters, options (including `-BiasVolume 0|1|2`), recorders, and
-stage-0/1/2 behavior are unchanged. The class tag remains 14028 and the kernel
-restart revision remains 4, so existing revision-4 databases can be restored
-by the renamed material. Earlier revision-3 databases remain incompatible.
+The old command RIVASandIntermediateBiasResearch is no longer registered.
+The current command requires twelve material values: insert dimensionless
+G0 immediately after Dr (reference: 483.48301127222084). Pre-G0 inputs and databases
+are incompatible; rerun initialization. The 139-value kernel history remains
+revision 4, but its adapter now serializes G0 plus an input revision marker
+(183 values total). Existing stage behavior and BiasVolume options are unchanged.
+Custom eMax/eMin also refresh the material-specific reference density,
+matching the corrected Hercules implementation.
+The read-only material response `referenceRelativeDensity` reports that
+derived calibration anchor; it survives material copies and database restart.
+
+See [G0 input migration and verification](G0_INPUT_VALIDATION.md) for the
+completed checks and the regression command for both material generations.
 
 This rename preserves the constitutive equations, calibration, and accepted
 histories from `research/rivasand-field-bias-volume`; it does not expand their
@@ -26,7 +33,7 @@ it is intentionally incompatible with revision-3 restart files.
 ## Command
 
 ```tcl
-nDMaterial RIVASAND02 tag Dr M kd h m zeta \
+nDMaterial RIVASAND02 tag Dr G0 M kd h m zeta \
     eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
     <-pMin value> <-tangentPMin value> <-pResidual value> \
@@ -35,7 +42,7 @@ nDMaterial RIVASAND02 tag Dr M kd h m zeta \
     <-initialStress sxx syy szz sxy syz sxz>
 ```
 
-The public inputs and units follow `RIVASand`. The additional calibrated
+The public inputs and units follow [the RIVA-Sand user guide](../RIVASand/RIVASand_USER_GUIDE.md), including its G0 calibration and migration instructions. The additional calibrated
 phase-transformation, loose-flow, mapping/backstress, and intermediate-bias
 controls are frozen inside this research kernel; they are not independent
 OpenSees inputs.
@@ -45,7 +52,7 @@ The Ottawa F65 reference values used by the verification cases are:
 ```tcl
 set Dr 0.662
 nDMaterial RIVASAND02 8001 \
-    $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
+    $Dr 483.48301127222084 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 \
     -nSub 1 -stressScale 1.0
 ```

@@ -14,13 +14,13 @@ details.
 ## Material command
 
 ```tcl
-nDMaterial RIVASand tag Dr M kd h m zeta eMax eMin Q R nG \
+nDMaterial RIVASand tag Dr G0 M kd h m zeta eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
     <-pMin value> <-tangentPMin value> <-stage 0|1> \
     <-initialStress sxx syy szz sxy syz sxz>
 ```
 
-All eleven values from `Dr` through `nG` are required. OpenSees provides one
+All twelve values from `Dr` through `nG` are required. OpenSees provides one
 configurable `RIVASand` command; there is no separate `RIVASandCustom`
 material.
 
@@ -33,6 +33,7 @@ dimensionless.
 | Input | Ottawa F65 value | Meaning | Practical effect |
 |---|---:|---|---|
 | `Dr` | 0.662962962962963 | Initial relative density, entered as a fraction | Defines the initial density state; this value corresponds to an initial void ratio of 0.601 |
+| `G0` | 483.48301127222084 | Dimensionless reference elastic stiffness coefficient | Sets the shear stiffness scale at 101.3 kPa; increasing it also increases elastic bulk stiffness at fixed Poisson’s ratio |
 | `M` | 1.25 | Base bounding stress ratio | Primarily controls the available shear-strength/stress-ratio range |
 | `kd` | 1.125 | Base dilatancy stress ratio | Controls the stress-ratio level associated with the transition between contractive and dilative tendencies |
 | `h` | 122.44207260468994 | Plastic hardening scale | Controls the magnitude of plastic hardening and therefore nonlinear stiffness |
@@ -49,9 +50,9 @@ material converts it to its initial void ratio using `Dr`, `eMax`, and `eMin`.
 For example, the reference inputs `Dr=0.662962962962963`, `eMax=0.78`, and
 `eMin=0.51` give `e0=0.601`.
 
-In OpenSees, the other ten required parameters do not change automatically
+In OpenSees, the other eleven required parameters do not change automatically
 when `Dr` changes. For another relative density of Ottawa F65, the user may
-retain the Ottawa values for `M` through `nG` and change `Dr`, but that use
+retain the Ottawa values for `G0` through `nG` and change `Dr`, but that use
 should remain within the range supported by laboratory validation. A
 different sand requires a new calibration rather than only a change in `Dr`.
 
@@ -60,6 +61,24 @@ are coupled, so changing one parameter can affect stiffness, hysteresis,
 effective stress, and cyclic strain accumulation simultaneously. Do not treat
 these values as independent curve-fitting knobs.
 
+## G0 input migration and stiffness calibration
+
+G0 is required immediately after Dr. It is dimensionless: enter the same
+number in Pa and kPa models; stressScale converts the internal stress units.
+The reference value 483.48301127222084 corresponds to a reference shear modulus
+of 48976.82904187597 kPa at the existing reference pressure of 101.3 kPa.
+Use measured small-strain shear-wave velocity or shear modulus to calibrate
+this scale at the relevant confinement. G0 is not automatically computed
+from Dr. Changing G0 scales both elastic shear and bulk stiffness with the
+existing Poisson's ratio, and requires rechecking cyclic/PWP results.
+No SANISAND void-ratio stiffness factor or PM4Sand cyclic law has been added.
+
+Old eleven-value material commands must insert G0; they are not accepted as
+an alternate syntax. Pre-G0 databases are incompatible: rerun gravity and
+dynamics with the migrated inputs. New databases serialize G0 explicitly.
+The read-only material responses `G0` and `Gref` report the coefficient
+and reference shear modulus (the latter in analysis stress units).
+
 ## Fixed reference quantities
 
 The OpenSees material also contains fixed quantities from the Ottawa F65
@@ -67,7 +86,6 @@ reference library. They are not arguments of the `RIVASand` command.
 
 | Quantity | Reference value | Purpose |
 |---|---:|---|
-| Reference Young's modulus | 127339.75550887753 kPa | Sets the reference elastic stiffness |
 | Poisson's ratio | 0.30 | Defines the elastic bulk/shear relationship |
 | Reference pressure | 101.3 kPa | Pressure used to normalize stiffness |
 | Hardening pressure exponent | 0.35 | Controls confinement dependence of hardening |
@@ -89,7 +107,7 @@ set matTag 8001
 set Dr 0.662962962962963
 
 nDMaterial RIVASand $matTag \
-    $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
+    $Dr 483.48301127222084 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 \
     -nSub 1 -stressScale 1.0 \
     -initialStress -19.4 -19.4 -40.0 0.0 0.0 0.0
@@ -114,7 +132,7 @@ set matTag 8001
 set Dr 0.662962962962963
 
 nDMaterial RIVASand $matTag \
-    $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
+    $Dr 483.48301127222084 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 \
     -rho $rho -nSub 1 -stressScale 1.0 -stage 0
 ```
@@ -262,7 +280,7 @@ against material-point and site-response benchmarks.
 - Entering compressive initial normal stresses as positive values.
 - Selecting `-stage 1` without supplying `-initialStress`.
 - Starting dynamics without calling `updateMaterialStage` after gravity.
-- Assuming the other ten required parameters change automatically with `Dr`.
+- Assuming the other eleven required parameters change automatically with `Dr`.
 - Treating `effectivePressureRatio` as the nodal pore pressure in a `u-p`
   element.
 - Increasing `-pMin` for numerical convenience without rechecking the physical

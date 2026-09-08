@@ -3,7 +3,7 @@
 proc materialCommand {options {initialStress {}}} {
     set Dr [expr {(0.78-0.601)/(0.78-0.51)}]
     set command [list nDMaterial RIVASAND02 8030 \
-        $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
+        $Dr 483.48301127222084 1.25 1.125 122.44207260468994 0.945 0.025 \
         0.78 0.51 10.0 1.5 0.65 -nSub 4 -stressScale 1.0]
     if {[llength $initialStress] != 0} {
         lappend command -stage 1 -initialStress {*}$initialStress

@@ -8,7 +8,7 @@ model BasicBuilder -ndm 3 -ndf 3
 set matTag 8001
 set Dr [expr {(0.78-0.601)/(0.78-0.51)}]
 nDMaterial RIVASand $matTag \
-    $Dr 1.25 1.125 122.44207260468994 0.945 0.025 \
+    $Dr 483.48301127222084 1.25 1.125 122.44207260468994 0.945 0.025 \
     0.78 0.51 10.0 1.5 0.65 \
     -nSub 1 -stressScale 1.0 \
     -initialStress -19.4 -19.4 -40.0 0.0 0.0 0.0
