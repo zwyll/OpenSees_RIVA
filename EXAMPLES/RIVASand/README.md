@@ -13,7 +13,7 @@ and channel serialization.
 ```tcl
 nDMaterial RIVASand tag Dr G0 M kd h m zeta eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
-    <-pMin value> <-tangentPMin value> <-stage 0|1> \
+    <-pMin value> <-tangentPMin value> <-TanType 0|1> <-stage 0|1> \
     <-initialStress sxx syy szz sxy syz sxz>
 ```
 
@@ -92,12 +92,15 @@ end-of-gravity vertical effective-stress reference.
 
 ## Tangent and analysis type
 
-RIVA-Sand is integrated explicitly inside the material. Stage 1 returns its current
-pressure/state-dependent elastic tangent, not a consistent algorithmic
-elastoplastic tangent. This is suitable for explicit or transient workflows
-where the constitutive substep is the intended integration scheme. A strongly
-nonlinear implicit static solve can require smaller global steps and may not
-show quadratic Newton convergence.
+RIVA-Sand is integrated explicitly inside the material. `-TanType 0` (default)
+retains its current pressure/state-dependent elastic tangent. `-TanType 1`
+selects a safeguarded continuum elastoplastic backbone tangent for nonlinear
+stages. Neither choice changes constitutive integration. Mode 1 freezes the
+auxiliary overlays: it is not an algorithmically consistent tangent of the
+complete substepped model and does not guarantee quadratic Newton convergence.
+Stage 0 and the initial tangent remain elastic. Use a nonsymmetric-capable
+solver with mode 1. See the [user guide](RIVASand_USER_GUIDE.md#tangent-and-convergence-considerations)
+and [validation record](CONTINUUM_TANGENT_VALIDATION.md).
 
 For low-confinement u-p analyses, do not combine a nearly vanishing tangent
 with an unnecessarily large penalty constraint. Prefer the Transformation

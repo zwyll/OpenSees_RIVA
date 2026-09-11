@@ -61,6 +61,7 @@ public:
     void Print(OPS_Stream &output, int flag = 0);
 
     bool isValid(void) const;
+    int setTangentType(int type);
 
 private:
     enum {
@@ -75,6 +76,7 @@ private:
     int activateFromCommittedStress(void);
     void buildTangent(double bulk, double shear, Matrix &matrix) const;
     void updateTrialTangent(void);
+    bool buildContinuumTangent(double result[6][6]) const;
     double initialVoidRatio(void) const;
     const Vector &getStateVector(void);
     const Vector &getScalarResponse(int responseID);
@@ -94,6 +96,10 @@ private:
     int mStage;
     int mInitialStage;
     bool mValid;
+    int mTangentType = 0;
+    int mTangentStatus = 0;
+    bool mTrialPlasticLoading = false;
+    bool mCommittedPlasticLoading = false;
 
     riva_parameters_t mParameters;
     riva_material_parameters_t mMaterial;

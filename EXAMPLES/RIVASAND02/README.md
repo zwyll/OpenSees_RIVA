@@ -36,7 +36,7 @@ it is intentionally incompatible with revision-3 restart files.
 nDMaterial RIVASAND02 tag Dr G0 M kd h m zeta \
     eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
-    <-pMin value> <-tangentPMin value> <-pResidual value> \
+    <-pMin value> <-tangentPMin value> <-TanType 0|1> <-pResidual value> \
     <-geostaticAdmission> <-reversalLatch> <-BiasVolume 0|1|2> \
     <-stage 0|1|2> \
     <-initialStress sxx syy szz sxy syz sxz>
@@ -60,6 +60,18 @@ nDMaterial RIVASAND02 8001 \
 Use `-stressScale 1.0` when the OpenSees stress unit is kPa and
 `-stressScale 1000.0` when it is Pa. `-nSub` selects fixed constitutive
 substeps per host strain increment.
+
+`-TanType 0` (default) preserves the elastic tangent. `-TanType 1` selects
+the safeguarded continuum elastoplastic backbone tangent, including the
+mapping/backstress branch. It does not change stress integration or any
+BiasVolume mode, and it is not a fully consistent algorithmic tangent of
+the research overlays/substeps. Stage 0 and the initial tangent remain
+elastic. Use a nonsymmetric-capable system solver. The selector and
+committed tangent-activity flag survive copying/restart in adapter revision
+2; the 139-value kernel state remains revision 4. The reader also accepts
+the preceding G0-aware adapter-revision-1 checkpoints as elastic mode 0.
+See [usage and safeguards](../RIVASand/RIVASand_USER_GUIDE.md#tangent-and-convergence-considerations)
+and [validation](../RIVASand/CONTINUUM_TANGENT_VALIDATION.md).
 
 `-BiasVolume` is a dimensionless integer selector for the three existing
 biased-volume behaviors. Omitting it is exactly equivalent to `-BiasVolume 0`.

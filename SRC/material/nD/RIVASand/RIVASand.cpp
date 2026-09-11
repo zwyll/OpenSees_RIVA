@@ -3,6 +3,7 @@
 ** ****************************************************************** */
 
 #include "RIVASand.h"
+#include "RIVASandContinuumTangent.h"
 
 #include <Channel.h>
 #include <FEM_ObjectBroker.h>
@@ -19,7 +20,7 @@
 namespace {
 
 const int RIVASerializedSize = 135;
-const int RIVAAdapterRevision = 1; // required G0 input and serialized stiffness
+const int RIVAAdapterRevision = 2; // tangent selector/activity in configuration bits
 
 bool finiteVector(const Vector &value)
 {
@@ -38,7 +39,7 @@ OPS_RIVASandMaterial(void)
         opserr << "Want: nDMaterial RIVASand tag Dr G0 M kd h m zeta "
                << "eMax eMin Q R nG <-rho value> <-nSub value> "
                << "<-stressScale value> <-pMin value> "
-               << "<-tangentPMin value> <-pResidual value> "
+               << "<-tangentPMin value> <-TanType 0|1> <-pResidual value> "
                << "<-geostaticAdmission> <-stage 0|1> "
                << "<-initialStress sxx syy szz sxy syz sxz>" << endln;
         return 0;
@@ -65,6 +66,8 @@ OPS_RIVASandMaterial(void)
     double tangentPressureFloor = -1.0;
     double residualPressure = 0.0;
     bool geostaticAdmission = false;
+    int tangentType = 0;
+    bool tangentTypeSpecified = false;
     int fixedSubsteps = 1;
     int stage = 0;
     bool stageSpecified = false;
@@ -114,6 +117,18 @@ OPS_RIVASandMaterial(void)
                        << "; value must be positive" << endln;
                 return 0;
             }
+        } else if (std::strcmp(option, "-TanType") == 0) {
+            int requested = -1;
+            count = 1;
+            if (OPS_GetIntInput(&count, &requested) < 0 ||
+                (requested != 0 && requested != 1) ||
+                (tangentTypeSpecified && requested != tangentType)) {
+                opserr << "WARNING RIVASand -TanType requires 0 or 1; "
+                       << "conflicting duplicate values are not allowed" << endln;
+                return 0;
+            }
+            tangentType = requested;
+            tangentTypeSpecified = true;
         } else if (std::strcmp(option, "-pResidual") == 0) {
             count = 1;
             if (OPS_GetDoubleInput(&count, &residualPressure) < 0 ||
@@ -168,6 +183,7 @@ OPS_RIVASandMaterial(void)
         delete material;
         return 0;
     }
+    material->setTangentType(tangentType);
     return material;
 }
 
@@ -284,6 +300,7 @@ RIVASand::initialVoidRatio(void) const
 int
 RIVASand::activateFromCommittedStress(void)
 {
+    mTrialPlasticLoading = mCommittedPlasticLoading = false;
     riva_tensor_t stress = stressToTensor(mCommittedStress);
     const double physicalPressure = riva_pressure(stress);
     if (!(physicalPressure > mParameters.p_min)) {
@@ -368,9 +385,31 @@ RIVASand::buildTangent(double bulk, double shear, Matrix &matrix) const
     matrix(5, 5) = shear;
 }
 
+bool
+RIVASand::buildContinuumTangent(double result[6][6]) const
+{
+    const riva_state_t &s=mTrialState;
+    const double pressure=riva_cone_pressure(&mParameters,s.stress);
+    if (!s.initialized || pressure<=mTangentPressureFloor ||
+        pressure<=riva_cone_pressure_floor(&mParameters) ||
+        s.beta<=1.e-6 || (s.D_re>0.0 && s.eps_v_reversible<=0.0))
+        return false;
+    double mb,md,xi;
+    riva_surfaces(&mParameters,&mMaterial,pressure,s.void_ratio,&mb,&md,&xi);
+    // The cone projection/geostatic over-bound rule is not differentiable here.
+    if (riva_norm(s.alpha)>=sqrt(2.0/3.0)*mb*(1.0-1.e-10)) return false;
+    double shear,bulk;
+    riva_moduli_for_state(&mParameters,&mMaterial,pressure,&s,&shear,&bulk);
+    const double hardening=pressure*riva_hardening_for_state(
+        &mParameters,&mMaterial,pressure,&s)*pow(riva_max(s.beta,1.e-12),mMaterial.m);
+    return riva_continuum::build(shear,bulk,s.n,s.n,riva_ddot(s.alpha,s.n),
+        s.D,(2.0/3.0)*hardening,mParameters.denominator_floor_ratio,result);
+}
+
 void
 RIVASand::updateTrialTangent(void)
 {
+    mTangentStatus = 0;
     if (mStage == 1 && mTrialState.initialized) {
         double shear = 0.0;
         double bulk = 0.0;
@@ -385,9 +424,9 @@ RIVASand::updateTrialTangent(void)
                              &mTrialState, &shear, &bulk);
         // A rejected global Newton trial can drive auxiliary state variables
         // far outside the committed neighborhood even when the kernel later
-        // reverts. Never expose a non-finite/indefinite material tangent to
-        // the assembled u-p system; use the finite reference tangent for that
-        // rejected trial and let the global algorithm reduce the step.
+        // reverts. Keep the fallback elastic operator finite and positive.
+        // The opt-in continuum operator below is generally nonsymmetric;
+        // unlike the elastic fallback it is not guaranteed positive definite.
         if (std::isfinite(shear) && std::isfinite(bulk) &&
             shear > 0.0 && bulk > 0.0)
             buildTangent(bulk, shear, mTangent);
@@ -396,6 +435,29 @@ RIVASand::updateTrialTangent(void)
     } else {
         mTangent = mInitialTangent;
     }
+    if (mTangentType == 1 && mStage != 0) {
+        mTangentStatus = 2; // elastic: inactive or discrete integration event
+        if (mTrialPlasticLoading) {
+            double continuum[6][6];
+            mTangentStatus = 3; // elastic safeguard at a nonsmooth/invalid state
+            if (buildContinuumTangent(continuum)) {
+                for (int i=0;i<6;++i)
+                    for (int j=0;j<6;++j) mTangent(i,j)=continuum[i][j];
+                mTangentStatus = 1;
+            }
+        }
+    }
+}
+
+int
+RIVASand::setTangentType(int type)
+{
+    if (type != 0 && type != 1) return -1;
+    if (type == mTangentType) return 0;
+    mTangentType = type;
+    if (type == 0) mTrialPlasticLoading = mCommittedPlasticLoading = false;
+    updateTrialTangent();
+    return 0;
 }
 
 int
@@ -404,8 +466,11 @@ RIVASand::setTrialStrain(const Vector &strain)
     if (!mValid || strain.Size() != 6 || !finiteVector(strain)) return -1;
     mTrialStrain = strain;
     Vector increment = mTrialStrain - mCommittedStrain;
+    mTrialPlasticLoading = mCommittedPlasticLoading;
 
     if (mStage == 0) {
+        mTrialPlasticLoading = false;
+        mTangentStatus = 0;
         mTrialStress = mCommittedStress;
         for (int i = 0; i < 6; ++i)
             for (int j = 0; j < 6; ++j)
@@ -426,6 +491,7 @@ RIVASand::setTrialStrain(const Vector &strain)
         mTrialState = mCommittedState;
         mTrialStress = mCommittedStress;
         mTrialStrain = mCommittedStrain;
+        if (mTangentType == 1) updateTrialTangent();
         return -1;
     }
     tensorToStress(stress, mTrialStress);
@@ -436,6 +502,9 @@ RIVASand::setTrialStrain(const Vector &strain)
         updateTrialTangent();
         return -1;
     }
+    if (mTangentType == 1 && increment.Norm() != 0.0)
+        mTrialPlasticLoading=riva_continuum::smoothPlasticStep(
+            mCommittedState,mTrialState);
     updateTrialTangent();
     return 0;
 }
@@ -495,6 +564,7 @@ RIVASand::getRho(void)
 int
 RIVASand::commitState(void)
 {
+    mCommittedPlasticLoading = mTrialPlasticLoading;
     mCommittedStrain = mTrialStrain;
     mCommittedStress = mTrialStress;
     mCommittedState = mTrialState;
@@ -504,6 +574,7 @@ RIVASand::commitState(void)
 int
 RIVASand::revertToLastCommit(void)
 {
+    mTrialPlasticLoading = mCommittedPlasticLoading;
     mTrialStrain = mCommittedStrain;
     mTrialStress = mCommittedStress;
     mTrialState = mCommittedState;
@@ -514,6 +585,8 @@ RIVASand::revertToLastCommit(void)
 int
 RIVASand::revertToStart(void)
 {
+    mTrialPlasticLoading = mCommittedPlasticLoading = false;
+    mTangentStatus = 0;
     mStage = mInitialStage;
     mCommittedStrain.Zero();
     mTrialStrain.Zero();
@@ -594,7 +667,8 @@ RIVASand::sendSelf(int commitTag, Channel &theChannel)
     data(129) = mParameters.p_min;
     data(130) = mTangentPressureFloor;
     data(131) = mParameters.p_residual;
-    data(132) = mParameters.geostatic_admission_enabled;
+    data(132) = mParameters.geostatic_admission_enabled |
+        (mTangentType == 1 ? 2 : 0) | (mCommittedPlasticLoading ? 4 : 0);
 
     data(133) = mG0;
     data(134) = RIVAAdapterRevision;
@@ -664,10 +738,16 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
         return -1;
     }
     if (data.Size() != RIVASerializedSize ||
-        data(134) != RIVAAdapterRevision) {
-        opserr << "RIVASand::recvSelf incompatible pre-G0 checkpoint; rerun initialization" << endln;
+        (data(134) != 1 && data(134) != RIVAAdapterRevision)) {
+        opserr << "RIVASand::recvSelf incompatible adapter checkpoint" << endln;
         return -1;
     }
+    if (!std::isfinite(data(132)) || data(132)!=std::floor(data(132)) ||
+        data(132)<0 || data(132)>(data(134)==1?1:7)) return -1;
+    const int flags=(int)data(132);
+    mTangentType=(flags & 2)?1:0;
+    mTrialPlasticLoading=mCommittedPlasticLoading=(flags & 4)!=0;
+    if (mCommittedPlasticLoading && mTangentType==0) return -1;
     this->setTag((int)data(0));
     mDr = data(1);
     mStressScale = data(2);
@@ -679,8 +759,7 @@ RIVASand::recvSelf(int commitTag, Channel &theChannel,
     setReferenceParameters();
     mParameters.p_min = data(129);
     mParameters.p_residual = data(131);
-    mParameters.geostatic_admission_enabled =
-        (int32_t)std::llround(data(132));
+    mParameters.geostatic_admission_enabled = flags & 1;
     mTangentPressureFloor = riva_max(data(130), mParameters.p_min);
     setMaterialParameters(data(133), data(13), data(14), data(15), data(16), data(17),
                           data(18), data(19), data(20), data(21), data(22));
@@ -727,6 +806,8 @@ RIVASand::getStateVector(void)
 const Vector &
 RIVASand::getScalarResponse(int responseID)
 {
+    if (responseID == 18) { mScalarOutput(0)=mTangentType; return mScalarOutput; }
+    if (responseID == 19) { mScalarOutput(0)=mTangentStatus; return mScalarOutput; }
     if (responseID == 4) {
         mScalarOutput(0) = mTrialState.initialized ?
             mTrialState.void_ratio : initialVoidRatio();
@@ -758,6 +839,12 @@ Response *
 RIVASand::setResponse(const char **argv, int argc, OPS_Stream &output)
 {
     if (argc < 1) return 0;
+    if (std::strcmp(argv[0], "TanType") == 0)
+        return new MaterialResponse(this, 18, getScalarResponse(18));
+    if (std::strcmp(argv[0], "tangentStatus") == 0)
+        return new MaterialResponse(this, 19, getScalarResponse(19));
+    if (std::strcmp(argv[0], "tangent") == 0)
+        return new MaterialResponse(this, 20, getTangent());
     if (std::strcmp(argv[0], "G0") == 0)
         return new MaterialResponse(this, 15, getScalarResponse(15));
     if (std::strcmp(argv[0], "Gref") == 0)
@@ -790,6 +877,9 @@ RIVASand::setResponse(const char **argv, int argc, OPS_Stream &output)
 int
 RIVASand::getResponse(int responseID, Information &materialInfo)
 {
+    if (responseID == 18 || responseID == 19)
+        return materialInfo.setVector(getScalarResponse(responseID));
+    if (responseID == 20) return materialInfo.setMatrix(getTangent());
     if (responseID == 1) return materialInfo.setVector(getStress());
     if (responseID == 2) return materialInfo.setVector(getStrain());
     if (responseID == 3) return materialInfo.setVector(getStateVector());
@@ -858,5 +948,6 @@ RIVASand::Print(OPS_Stream &output, int flag)
            << " geostaticAdmission="
            << mParameters.geostatic_admission_enabled
            << " tangentPMin=" << mTangentPressureFloor
+           << " TanType=" << mTangentType
            << " parameterSHA=" << RIVA_PARAMETER_SHA256 << endln;
 }

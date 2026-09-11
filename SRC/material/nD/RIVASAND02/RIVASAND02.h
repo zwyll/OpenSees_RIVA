@@ -61,6 +61,7 @@ public:
     void Print(OPS_Stream &output, int flag = 0);
 
     bool isValid(void) const;
+    int setTangentType(int type);
     void setReversalLatch(bool on) { mReversalLatch = on; }
     void setFieldBiasMeanCorrection(bool on) {
         mParameters.field_bias_mean_correction_enabled = on ? 1 : 0;
@@ -83,6 +84,7 @@ private:
     int beginDynamicFromCommittedState(void);
     void buildTangent(double bulk, double shear, Matrix &matrix) const;
     void updateTrialTangent(void);
+    bool buildContinuumTangent(double result[6][6]) const;
     double initialVoidRatio(void) const;
     // Derived from the existing serialized flags; no additional restart state.
     int getBiasVolumeMode(void) const {
@@ -108,6 +110,10 @@ private:
     int mStage;
     int mInitialStage;
     bool mValid;
+    int mTangentType = 0;
+    int mTangentStatus = 0;
+    bool mTrialPlasticLoading = false;
+    bool mCommittedPlasticLoading = false;
     bool mGeostaticAdmission;
     /* Freeze one host-level reversal decision across the trial evaluations
      * belonging to a single OpenSees load step. The enabled setting is

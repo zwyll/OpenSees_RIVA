@@ -570,6 +570,7 @@
     <ClInclude Include="..\..\..\SRC\material\nD\UWmaterials\LinearElasticGGmax.h" />
     <ClInclude Include="..\..\..\SRC\material\nD\RIVASand\RIVASand.h" />
     <ClInclude Include="..\..\..\SRC\material\nD\RIVASand\RIVASandKernel.h" />
+    <ClInclude Include="..\..\..\SRC\material\nD\RIVASand\RIVASandContinuumTangent.h" />
     <ClInclude Include="..\..\..\SRC\material\nD\RIVASAND02\RIVASAND02.h" />
     <ClInclude Include="..\..\..\SRC\material\nD\RIVASAND02\RIVASAND02Kernel.h" />
     <ClInclude Include="..\..\..\SRC\material\nD\RIVASAND02\RIVASAND02BaseKernel.h" />
