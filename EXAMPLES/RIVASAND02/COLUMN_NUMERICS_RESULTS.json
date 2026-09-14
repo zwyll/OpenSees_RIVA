@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "status": "passed for the stated scope",
+  "branch": "research/rivasand02-column-numerics",
+  "base_commit": "ba2fe101c79cf3acad0274032ad36db4fe4ac96e",
+  "research_material": "RIVASAND02BranchReversalResearch",
+  "class_tag": 14029,
+  "executable_sha256": "67a3dbd3a6f0f55e6325a8cf7c2b5e2325d79389dc708b0e84e4e1909c998751",
+  "reference_plugin_sha256": "144811f34412a1844eda56d0d825de4c53d8b6dc955b7a1cb2070fc94a67a744",
+  "sspbrickup_contracts": {
+    "committed_stiffness_damping_relative_error": 0.0,
+    "invalid_material_trial_rejected": true
+  },
+  "prescribed_path_checks": {
+    "pure_shear_identical_128": true,
+    "mixed_path_four_reversals_128": true,
+    "pure_shear_identical_512": true,
+    "mixed_path_four_reversals_512": true,
+    "pure_shear_identical_2048": true,
+    "mixed_path_four_reversals_2048": true,
+    "pure_shear_identical_8192": true,
+    "mixed_path_four_reversals_8192": true,
+    "bottom_rotation_max_stress_error_kPa": 1.4921397450962104e-13,
+    "loose_rotation_max_stress_error_kPa": 9.947598300641403e-14,
+    "latch_and_checkpoint_rejection_and_trial_path_independence": true
+  },
+  "native_regressions": [
+    {
+      "test": "RIVASAND02/tests/RIVASAND02_stage_activation.tcl",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "test": "RIVASAND02/tests/RIVASAND02_restart.tcl",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "test": "RIVASAND02/tests/RIVASAND02_bias_volume_modes.tcl",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "test": "RIVASAND02/tests/RIVASAND02_no_bias_volume.tcl",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "test": "RIVASAND02/tests/RIVASand_G0.tcl",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "test": "RIVASand/tests/RIVASand_stage_activation.tcl",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "test": "RIVASand/tests/RIVASand_continuum.tcl",
+      "passed": true,
+      "exit_code": 0
+    },
+    {
+      "test": "RIVASand/tests/RIVASandKernelStateTest.cpp",
+      "passed": true
+    },
+    {
+      "test": "RIVASAND02/tests/RIVASAND02KernelStateTest.cpp",
+      "passed": true
+    }
+  ],
+  "full_column": {
+    "duration_s": 70,
+    "dt_s": 0.0025,
+    "nSub": 10,
+    "TanType": 0,
+    "BiasVolume": 1,
+    "integrator": "NewmarkExplicit 0.5",
+    "algorithm": "Linear",
+    "elapsed_s": 147.8978653339982,
+    "recorders": {
+      "accabs_candidate.out": {
+        "shape": [
+          28001,
+          22
+        ],
+        "end_s": 69.99999999997259,
+        "max_abs_difference": 0.0,
+        "identical": true
+      },
+      "accsurf_candidate.out": {
+        "shape": [
+          28001,
+          2
+        ],
+        "end_s": 69.99999999997259,
+        "max_abs_difference": 0.0,
+        "identical": true
+      },
+      "disp_candidate.out": {
+        "shape": [
+          28001,
+          64
+        ],
+        "end_s": 69.99999999997259,
+        "max_abs_difference": 0.0,
+        "identical": true
+      },
+      "pp_candidate.out": {
+        "shape": [
+          28001,
+          22
+        ],
+        "end_s": 69.99999999997259,
+        "max_abs_difference": 0.0,
+        "identical": true
+      },
+      "strain_candidate.out": {
+        "shape": [
+          28001,
+          121
+        ],
+        "end_s": 69.99999999997259,
+        "max_abs_difference": 0.0,
+        "identical": true
+      },
+      "stress_candidate.out": {
+        "shape": [
+          28001,
+          121
+        ],
+        "end_s": 69.99999999997259,
+        "max_abs_difference": 0.0,
+        "identical": true
+      }
+    }
+  },
+  "limitations": [
+    "Research successor; no production acceptance or new calibration.",
+    "Research checkpoint/channel transfer disabled; reversal latch rejected.",
+    "No Hercules, GPU/MPI, mesh-convergence or full-duration implicit acceptance.",
+    "Optional Xara runtime broker excluded from local executable; existing Hash.h dependency absent for separate syntax compilation."
+  ],
+  "source_sha256": {
+    "SRC/element/UWelements/SSPbrickUP.cpp": "cabff3c5b4162ca3b8b892e8f0f445e97a4e59f75cba1513a35313cd1c755f30",
+    "SRC/material/nD/RIVASAND02/RIVASAND02.cpp": "69c81f2e787c70e3630c17205a03256d8dba2d003f964fe60f460a4dcdf4e4c3",
+    "SRC/material/nD/TclModelBuilderNDMaterialCommand.cpp": "538b4576ceda74318cc0d4eb6aecc12d2d7277f15eff7be74b013b5b82d84fc7",
+    "SRC/interpreter/OpenSeesNDMaterialCommands.cpp": "c8c372d0e7aa7efd63ffa378c58ab660726a3ecd778c53784be145dd49e74ec0",
+    "SRC/actor/objectBroker/FEM_ObjectBrokerAllClasses.cpp": "28f1cf1b272d00e603514e710f26893e51f0bd6956c6acc1345965035f510d93",
+    "SRC/material/nD/RIVASAND02/RIVASAND02.h": "bf9f511720bc7e4f6f13968228d6f00d53031a41a41400a3d4a03255e3bdcfb2",
+    "SRC/material/nD/RIVASAND02/RIVASAND02Kernel.h": "ede4bcbf523afc2cb78ff8c81facac1d2c2dbcc63f5f82352859e1755e05301f",
+    "SRC/classTags.h": "338c8ff5914e11d8eaba999bd829f147a911c2861b043a3268e0f5f3696222ff"
+  }
+}

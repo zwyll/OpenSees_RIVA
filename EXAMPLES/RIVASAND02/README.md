@@ -5,6 +5,11 @@
 identifies this successor; it does not refer to the historical PJ-Liq V2 model.
 The original `RIVASand` material remains available separately.
 
+The separately named built-in `RIVASAND02BranchReversalResearch` tests a
+loading-branch reference for reversal detection under combined strain paths.
+See [column numerical corrections and validation](COLUMN_NUMERICS_VALIDATION.md)
+for its command, restrictions, regression tests, and the two SSPbrickUP fixes.
+
 The old command RIVASandIntermediateBiasResearch is no longer registered.
 The current command requires twelve material values: insert dimensionless
 G0 immediately after Dr (reference: 483.48301127222084). Pre-G0 inputs and databases

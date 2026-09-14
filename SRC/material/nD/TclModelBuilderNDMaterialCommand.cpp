@@ -87,6 +87,7 @@ extern  void *OPS_PM4SiltMaterial(void);
 extern  void *OPS_LinearElasticGGmaxMaterial(void);
 extern  void *OPS_RIVASandMaterial(void);
 extern  void *OPS_RIVASAND02Material(void);
+extern  void *OPS_RIVASAND02BranchReversalResearchMaterial(void);
 extern  void *OPS_J2CyclicBoundingSurfaceMaterial(void);
 extern  void *OPS_CycLiqCPMaterial(void);
 extern  void *OPS_CycLiqCPSPMaterial(void);
@@ -537,6 +538,15 @@ TclModelBuilderNDMaterialCommand (ClientData clientData, Tcl_Interp *interp, int
     else if ((strcmp(argv[1], "RIVASAND02") == 0)) {
 
 	void *theMat = OPS_RIVASAND02Material();
+	if (theMat != 0)
+		theMaterial = (NDMaterial *)theMat;
+	else
+		return TCL_ERROR;
+    }
+
+    else if ((strcmp(argv[1], "RIVASAND02BranchReversalResearch") == 0)) {
+
+	void *theMat = OPS_RIVASAND02BranchReversalResearchMaterial();
 	if (theMat != 0)
 		theMaterial = (NDMaterial *)theMat;
 	else
@@ -1734,4 +1744,3 @@ TclModelBuilderNDMaterialCommand (ClientData clientData, Tcl_Interp *interp, int
 
     return TCL_OK;
 }
-

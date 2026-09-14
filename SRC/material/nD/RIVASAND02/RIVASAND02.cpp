@@ -43,8 +43,8 @@ bool finiteVector(const Vector &value)
 
 } // namespace
 
-void *
-OPS_RIVASAND02Material(void)
+static void *
+createRIVASAND02Material(bool branchReversalResearch)
 {
     const int requiredValues = 12;
     if (OPS_GetNumRemainingInputArgs() < requiredValues + 1) {
@@ -208,6 +208,11 @@ OPS_RIVASAND02Material(void)
 
     if (initialStressSpecified && !stageSpecified) stage = 1;
     if (biasVolumeMode < 0) biasVolumeMode = 0;
+    if (branchReversalResearch && reversalLatch) {
+        opserr << "RIVASAND02BranchReversalResearch requires reversal latch disabled"
+               << endln;
+        return 0;
+    }
     if (stage != 0 && !initialStressSpecified) {
         opserr << "WARNING RIVASAND02 -stage 1 or 2 requires a compressive "
                << "-initialStress; otherwise create at stage 0, establish "
@@ -219,7 +224,8 @@ OPS_RIVASAND02Material(void)
         tag, values[0], values[1], values[2], values[3], values[4],
         values[5], values[6], values[7], values[8], values[9], values[10], values[11],
         rho, fixedSubsteps, stressScale, pMin, tangentPressureFloor,
-        residualPressure, geostaticAdmission, stage, initialStress);
+        residualPressure, geostaticAdmission, stage, initialStress,
+        branchReversalResearch);
     if (material == 0 || !material->isValid()) {
         opserr << "WARNING invalid RIVASAND02 material with tag "
                << tag << endln;
@@ -233,18 +239,33 @@ OPS_RIVASAND02Material(void)
     return material;
 }
 
+void *
+OPS_RIVASAND02Material(void)
+{
+    return createRIVASAND02Material(false);
+}
+
+void *
+OPS_RIVASAND02BranchReversalResearchMaterial(void)
+{
+    return createRIVASAND02Material(true);
+}
+
 RIVASAND02::RIVASAND02(
     int tag, double Dr, double G0, double M, double kd, double h, double m,
     double zeta, double eMax, double eMin, double Q, double R, double nG,
     double rho, int fixedSubsteps, double stressScale, double pMin,
     double tangentPressureFloor, double residualPressure,
-    bool geostaticAdmission, int initialStage, const Vector &initialStress)
-    : NDMaterial(tag, ND_TAG_RIVASAND02),
+    bool geostaticAdmission, int initialStage, const Vector &initialStress,
+    bool branchReversalResearch)
+    : NDMaterial(tag, branchReversalResearch ?
+          ND_TAG_RIVASAND02BranchReversalResearch : ND_TAG_RIVASAND02),
       mDr(Dr), mG0(G0), mRho(rho), mStressScale(stressScale),
       mTangentPressureFloor(0.0),
       mFixedSubsteps(fixedSubsteps), mStage(initialStage),
       mInitialStage(initialStage), mValid(true),
       mGeostaticAdmission(geostaticAdmission),
+      mBranchReversalResearch(branchReversalResearch),
       mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
@@ -281,12 +302,14 @@ RIVASAND02::RIVASAND02(
     revertToStart();
 }
 
-RIVASAND02::RIVASAND02()
-    : NDMaterial(0, ND_TAG_RIVASAND02),
+RIVASAND02::RIVASAND02(bool branchReversalResearch)
+    : NDMaterial(0, branchReversalResearch ?
+          ND_TAG_RIVASAND02BranchReversalResearch : ND_TAG_RIVASAND02),
       mDr(0.0), mG0(RIVA_REFERENCE_G0), mRho(0.0), mStressScale(1.0),
       mTangentPressureFloor(0.0), mFixedSubsteps(1),
       mStage(0), mInitialStage(0), mValid(false),
       mGeostaticAdmission(false),
+      mBranchReversalResearch(branchReversalResearch),
       mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
@@ -599,10 +622,10 @@ RIVASAND02::setTrialStrain(const Vector &strain)
     riva_update_info_t information = {};
     const int reversalOverride =
         (mReversalLatch && mLatchValid) ? mLatchedReversal : -1;
-    if (!riva_ib_update_material_ex(
+    if (!riva_ib_update_material_reference_ex(
             &mParameters, &mMaterial, strainIncrementToTensor(increment),
             mFixedSubsteps, &mTrialState, &stress, &information,
-            reversalOverride)) {
+            reversalOverride, mBranchReversalResearch ? 1 : 0)) {
         mTrialState = mCommittedState;
         mTrialStress = mCommittedStress;
         mTrialStrain = mCommittedStrain;
@@ -738,9 +761,16 @@ RIVASAND02::getCopy(const char *code)
 {
     if (std::strcmp(code, "ThreeDimensional") == 0 ||
         std::strcmp(code, "3D") == 0 ||
-        std::strcmp(code, "RIVASAND02") == 0)
+        std::strcmp(code, getClassType()) == 0)
         return getCopy();
     return 0;
+}
+
+const char *
+RIVASAND02::getClassType(void) const
+{
+    return mBranchReversalResearch ?
+        "RIVASAND02BranchReversalResearch" : "RIVASAND02";
 }
 
 const char *
@@ -764,6 +794,11 @@ RIVASAND02::isValid(void) const
 int
 RIVASAND02::sendSelf(int commitTag, Channel &theChannel)
 {
+    if (mBranchReversalResearch) {
+        opserr << getClassType() << ": research checkpoints and channel transfer are disabled"
+               << endln;
+        return -1;
+    }
     Vector data(RIVASerializedSize);
     data.Zero();
     data(0) = this->getTag();
@@ -901,6 +936,11 @@ int
 RIVASAND02::recvSelf(int commitTag, Channel &theChannel,
                         FEM_ObjectBroker &theBroker)
 {
+    if (mBranchReversalResearch) {
+        opserr << getClassType() << ": research checkpoints and channel transfer are disabled"
+               << endln;
+        return -1;
+    }
     Vector data(RIVASerializedSize);
     if (theChannel.recvVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASAND02::recvSelf failed" << endln;
@@ -1151,7 +1191,7 @@ RIVASAND02::updateParameter(int responseID, Information &information)
 void
 RIVASAND02::Print(OPS_Stream &output, int flag)
 {
-    output << "RIVASAND02, tag: " << this->getTag() << endln;
+    output << getClassType() << ", tag: " << this->getTag() << endln;
     output << "  Dr=" << mDr << " G0=" << mG0 << " M=" << mMaterial.M
            << " kd=" << mMaterial.kd << " h=" << mMaterial.h
            << " m=" << mMaterial.m << " zeta=" << mMaterial.zeta

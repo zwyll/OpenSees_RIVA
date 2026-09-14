@@ -26,8 +26,9 @@ public:
                   int fixedSubsteps, double stressScale, double pMin,
                   double tangentPressureFloor, double residualPressure,
                   bool geostaticAdmission, int initialStage,
-                  const Vector &initialStress);
-    RIVASAND02();
+                  const Vector &initialStress,
+                  bool branchReversalResearch = false);
+    RIVASAND02(bool branchReversalResearch = false);
     virtual ~RIVASAND02();
 
     int setTrialStrain(const Vector &strain);
@@ -49,6 +50,7 @@ public:
     NDMaterial *getCopy(const char *code);
     const char *getType(void) const;
     int getOrder(void) const;
+    const char *getClassType(void) const override;
 
     int sendSelf(int commitTag, Channel &theChannel);
     int recvSelf(int commitTag, Channel &theChannel,
@@ -62,7 +64,9 @@ public:
 
     bool isValid(void) const;
     int setTangentType(int type);
-    void setReversalLatch(bool on) { mReversalLatch = on; }
+    void setReversalLatch(bool on) {
+        mReversalLatch = on && !mBranchReversalResearch;
+    }
     void setFieldBiasMeanCorrection(bool on) {
         mParameters.field_bias_mean_correction_enabled = on ? 1 : 0;
     }
@@ -115,6 +119,8 @@ private:
     bool mTrialPlasticLoading = false;
     bool mCommittedPlasticLoading = false;
     bool mGeostaticAdmission;
+    // Set only by the separately named factory; unsupported in checkpoints.
+    const bool mBranchReversalResearch;
     /* Freeze one host-level reversal decision across the trial evaluations
      * belonging to a single OpenSees load step. The enabled setting is
      * serialized; the transient decision is cleared at every committed or
@@ -140,5 +146,6 @@ private:
 };
 
 void *OPS_RIVASAND02Material(void);
+void *OPS_RIVASAND02BranchReversalResearchMaterial(void);
 
 #endif

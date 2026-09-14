@@ -535,6 +535,7 @@
 // Intermediate-bias RIVA-Sand research successor - W. Zhang
 // Keep the former RIVASandIntermediateBiasResearch tag for database compatibility.
 #define ND_TAG_RIVASAND02 14028
+#define ND_TAG_RIVASAND02BranchReversalResearch 14029
 // MultiaxialCyclicPlasticity, add by Gang Wang
 #define ND_TAG_MultiaxialCyclicPlasticity             10031
 #define ND_TAG_MultiaxialCyclicPlasticity3D           10032

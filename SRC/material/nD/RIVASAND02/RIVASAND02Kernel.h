@@ -2402,10 +2402,10 @@ RIVA_IB_HD static inline riva_ib_state_t riva_ib_host_outer_correction(
 /* reversal_override: -1 detects from the committed state and host increment;
  * 0 or 1 forces the host-level reversal decision. A host adapter may use
  * this entry point to keep one event decision during repeated trial calls. */
-RIVA_IB_HD static inline int riva_ib_update_material_ex(
+RIVA_IB_HD static inline int riva_ib_update_material_reference_ex(
     const riva_ib_parameters_t *p,const riva_material_parameters_t *m,
     tensor_t deps,int32_t nsub,riva_ib_state_t *state,tensor_t *stress_new,
-    riva_update_info_t *info,int32_t reversal_override)
+    riva_update_info_t *info,int32_t reversal_override,int32_t branch_reference)
 {
     if (!p || !m || !state || !state->base.initialized || nsub<1 ||
         !riva_material_parameters_valid(&p->base,m) || !riva_finite_tensor(deps))
@@ -2428,8 +2428,21 @@ RIVA_IB_HD static inline int riva_ib_update_material_ex(
     for (int32_t i=0;i<nsub;i++)
         current=riva_ib_forward_euler(p,m,&current,sub,
             objective && reversal && i==0,!objective,phase_active);
-    if (objective && valid)
-        current.base.last_host_deviatoric_strain_direction=direction;
+    if (objective && valid) {
+        if (branch_reference) {
+            // Research successor: retain the loading branch reference when
+            // consecutive increment directions rotate gradually. These six
+            // slots hold accumulated branch strain, not a unit direction;
+            // the research adapter must not use original checkpoints.
+            const tensor_t branch=initial.base.last_host_deviatoric_strain_direction;
+            const tensor_t increment=riva_dev(deps);
+            current.base.last_host_deviatoric_strain_direction=
+                reversal || riva_norm(branch)<=p->base.reversal_strain_deadband?
+                increment:riva_add(branch,increment);
+        } else {
+            current.base.last_host_deviatoric_strain_direction=direction;
+        }
+    }
     if (phase_active)
         current=riva_ib_apply_host_phase_volume(p,m,&initial,&current,deps);
     current.phase_accumulation_hardening_state=
@@ -2462,6 +2475,16 @@ RIVA_IB_HD static inline int riva_ib_update_material_ex(
     *state=current; if (stress_new) *stress_new=current.base.stress;
     if (info) { info->accepted_substeps=nsub; info->reversal_registered=reversal; }
     return 1;
+}
+
+// Preserve the original entry point and its event rule for RIVASAND02.
+RIVA_IB_HD static inline int riva_ib_update_material_ex(
+    const riva_ib_parameters_t *p,const riva_material_parameters_t *m,
+    tensor_t deps,int32_t nsub,riva_ib_state_t *state,tensor_t *stress_new,
+    riva_update_info_t *info,int32_t reversal_override)
+{
+    return riva_ib_update_material_reference_ex(p,m,deps,nsub,state,stress_new,
+                                               info,reversal_override,0);
 }
 
 RIVA_IB_HD static inline int riva_ib_update_material(
