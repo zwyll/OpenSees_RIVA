@@ -17,6 +17,17 @@ def main():
         values=np.loadtxt(path,delimiter=",",skiprows=1)
         assert np.isfinite(values).all(), f"Nonfinite output in {path}"
         return values
+    contracts=load_csv(HERE/"contracts/checks.csv")
+    assert contracts.shape==(4,)
+    assert contracts[0]<1e-12 and contracts[1]>1 and contracts[2]==0 and contracts[3]==1
+    damping=load_csv(HERE/"contracts/damping_contract.csv")
+    solid=(damping[:,0]%4!=3)&(damping[:,1]%4!=3)
+    np.testing.assert_allclose(damping[solid,4],damping[solid,3],rtol=1e-12,atol=1e-12)
+    np.testing.assert_array_equal(damping[~solid,4],damping[~solid,5])
+    checks["trial_stiffness_damping_relative_error"]=float(contracts[0])
+    checks["distance_from_committed_stiffness"]=float(contracts[1])
+    checks["hydraulic_and_coupling_blocks_unchanged"]=True
+    checks["invalid_material_trial_rejected"]=True
     for n in [128,512,2048,8192]:
         load=lambda name,v: load_csv(HERE/f"rotating_results/{name}_v{v}_n{n}.csv")
         original=load("RIVASAND02","0.0");research=load(NAME,"0.0")

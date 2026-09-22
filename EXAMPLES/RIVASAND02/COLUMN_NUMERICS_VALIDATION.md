@@ -1,28 +1,33 @@
 # Column numerical corrections
 
-The coupled free-field investigation identified two SSPbrickUP implementation
-errors and a reversal-detection sensitivity in RIVASAND02. This branch fixes
-the element errors and adds the separately named built-in research material
-`RIVASAND02BranchReversalResearch`.
+This branch retains SSPbrickUP material-failure propagation and the
+RIVASAND02 reversal options. At the user's request, the committed-stiffness
+Rayleigh damping change from `e97c12fbc` has been removed. The element now
+matches the failure-propagation-only variant used in the comparison study.
+The `-reversalType 1|2|3` selector and the older
+`RIVASAND02BranchReversalResearch` command remain available.
 
-## SSPbrickUP corrections
+## Current SSPbrickUP behavior
 
 - `update()` returns the material's `setTrialStrain()` result and reports the
   element tag when the material rejects a trial. Previously it always returned
   success. This detects a rejected numerical update; ordinary yielding or
   liquefaction is not itself an error condition.
-- The `betaKcomm` Rayleigh contribution uses the solid-displacement block of
-  the last committed element stiffness. Previously it used current trial
-  stiffness. The displacement indices skip the fourth, fluid degree of freedom
-  at each node. This correction is limited to `betaKcomm`; the other Rayleigh
-  contributions and the hydraulic/coupling blocks retain their existing behavior.
+- The `betaKcomm` Rayleigh slot again uses current trial solid stiffness
+  (`mSolidK`), matching the earlier element. Despite the coefficient's name,
+  this is not committed-stiffness damping in this element. The stiffness
+  damping term remains active; this change does not set its coefficient to
+  zero. The other Rayleigh terms and hydraulic/coupling blocks retain their
+  existing behavior.
 
 The focused regression makes an uncommitted strain change after saving the
-committed stiffness and compares the requested damping block against that
-saved matrix. It also injects an invalid strain and requires Domain::update
-to report failure. The original executable gives a damping relative error
-of 1.5183 and incorrectly accepts the invalid trial. Both checks pass with
-the corrections (zero damping error, invalid trial rejected).
+committed stiffness. It requires the requested damping solid block to match
+trial stiffness and to differ from saved committed stiffness. It separately
+checks that the fluid/coupling blocks are unaffected by the Rayleigh term,
+then injects an invalid strain and requires Domain::update to report failure.
+The current build has zero relative error against trial stiffness and rejects
+the invalid trial. This verifies the requested restoration, not conformance
+of the legacy `betaKcomm` implementation to its coefficient name.
 
 ## Research material usage
 
@@ -48,8 +53,9 @@ along a loading branch, so gradually rotating increment directions can still
 register reversal. Physical parameters are unchanged.
 
 This changes constitutive event handling and remains a **research successor**.
-The original `RIVASAND02` command retains its previous event rule and restart
-format. The research command rejects `-reversalLatch`. Its `sendSelf` and
+Without an explicit selector, `RIVASAND02` retains its previous event rule
+and restart format. See [the selector documentation](README.md) for all three
+rules. The research command rejects `-reversalLatch`. Its `sendSelf` and
 `recvSelf` reject database save/restore and channel transfer, including
 partitioned execution that needs material serialization: six historical state
 slots now have different meanings. Start research cases from initialization.
@@ -65,7 +71,13 @@ loose rows changes the transformed stress by less than 1.5e-13 kPa in the
 tested cases. Speculative uncommitted trials do not change accepted results;
 copy identity, latch rejection, and checkpoint rejection are also checked.
 
-The earlier fixed-input, 20-element, 70-second column study supports
+### Historical full-column results
+
+The following 70-second results and the linked JSON describe the earlier
+build with committed-stiffness damping (`e97c12fbc`). They are retained as
+historical evidence, not as validation of the current damping behavior.
+
+The earlier fixed-input, 20-element, 70-second column study supported
 `NewmarkExplicit 0.5`, `Linear`, `Transient`, **dt = 0.0025 s**, **nSub = 10**,
 `-TanType 0`, and `-noBiasVolume` for working runs in that specific setup.
 Relative to the 0.0003125 s benchmark, maximum PGA and pressure-peak changes
@@ -74,7 +86,7 @@ The 0.005 s explicit case fails with nSub 10, 20, 40, 80, 160, and 320.
 These time steps are case-specific and must be checked again after stiffness,
 mesh, or other relevant inputs change.
 
-The built-in material was also replayed through the complete 70-second column
+That built-in material was also replayed through the complete 70-second column
 at 0.0025 s and nSub = 10. All six recorder histories (absolute acceleration,
 surface acceleration, displacement, pore pressure, strain, and stress) are
 exactly identical to the previously tested plugin at all 28,001 recorded
@@ -112,6 +124,7 @@ Domain/Element operations for verification. It does not implement a material.
 
 The runner checks completion markers as well as process status, verifies
 finite recorded responses, and writes compact JSON results. It includes the
-SSPbrickUP contracts, the prescribed-path refinement and rotation tests, and
-research adapter guards. Existing RIVASand/RIVASAND02 state, stage, G0,
+SSPbrickUP trial-stiffness damping and failure-propagation checks, the
+prescribed-path refinement and rotation tests, all three reversal selections,
+and research adapter guards. Existing RIVASand/RIVASAND02 state, stage, G0,
 restart, bias-volume, and continuum-adapter checks remain applicable.

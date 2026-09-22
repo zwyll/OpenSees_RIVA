@@ -484,15 +484,8 @@ SSPbrickUP::getDamp(void)
     	dampC.addMatrix(1.0, mSolidK, betaK);
 	} if (betaK0 != 0.0) {
     	dampC.addMatrix(1.0, mSolidK, betaK0);
-	} if (betaKc != 0.0 && Kc != 0) {
-        // Element::commitState stores the last committed 32x32 stiffness.
-        // Extract only its solid-displacement block; mSolidK is the current
-        // trial stiffness and would make damping depend on Newton trials.
-        for (int i = 0; i < 24; ++i) {
-            for (int j = 0; j < 24; ++j) {
-                dampC(i,j) += betaKc * (*Kc)(i+i/3,j+j/3);
-            }
-        }
+	} if (betaKc != 0.0) {
+		dampC.addMatrix(1.0, mSolidK, betaKc);
 	}
 
 	// compute coupling matrix Q

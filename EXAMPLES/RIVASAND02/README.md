@@ -10,7 +10,8 @@ or host-increment UMAT-type reversal rule. Types 2 and 3 are research modes.
 The separately named built-in `RIVASAND02BranchReversalResearch` remains
 available and is equivalent to `RIVASAND02 -reversalType 2`.
 See [column numerical corrections and validation](COLUMN_NUMERICS_VALIDATION.md)
-for its command, restrictions, regression tests, and the two SSPbrickUP fixes.
+for its command, restrictions, regression tests, retained SSPbrickUP failure
+propagation, and the removal of the committed-stiffness damping change.
 
 The old command RIVASandIntermediateBiasResearch is no longer registered.
 The current command requires twelve material values: insert dimensionless
