@@ -55,6 +55,7 @@ def main():
         ("rotating_path.tcl", "rotating_results", "ROTATING_PATH_CHECKS_COMPLETE", []),
         ("rotation_covariance.tcl", "rotation_results", "ROTATION_COVARIANCE_COMPLETE", []),
         ("guard_checks.tcl", "guard_results", "PASS: research latch rejection", []),
+        ("reversal_types.tcl", "reversal_types", "REVERSAL_TYPES_COMPLETE", []),
     ]:
         result = subprocess.run(
             [str(executable), str(HERE / script), str(probe), str(output / destination), *extra],

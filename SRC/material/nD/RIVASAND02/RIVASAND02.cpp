@@ -52,7 +52,7 @@ createRIVASAND02Material(bool branchReversalResearch)
                << "eMax eMin Q R nG <-rho value> <-nSub value> "
                << "<-stressScale value> <-pMin value> "
                << "<-tangentPMin value> <-TanType 0|1> <-pResidual value> "
-               << "<-geostaticAdmission> <-reversalLatch> "
+               << "<-geostaticAdmission> <-reversalType 1|2|3> <-reversalLatch> "
                << "<-BiasVolume 0|1|2> <-stage 0|1|2> "
                << "<-initialStress sxx syy szz sxy syz sxz>" << endln;
         return 0;
@@ -81,6 +81,8 @@ createRIVASAND02Material(bool branchReversalResearch)
     bool geostaticAdmission = false;
     int tangentType = 0;
     bool tangentTypeSpecified = false;
+    int reversalType = branchReversalResearch ? 2 : 1;
+    bool reversalTypeSpecified = false;
     bool reversalLatch = false;
     int biasVolumeMode = -1; // Unspecified; use mode 0 after parsing.
     int fixedSubsteps = 1;
@@ -144,6 +146,18 @@ createRIVASAND02Material(bool branchReversalResearch)
             }
             tangentType = requested;
             tangentTypeSpecified = true;
+        } else if (std::strcmp(option, "-reversalType") == 0) {
+            int requested = 0;
+            count = 1;
+            if (OPS_GetIntInput(&count, &requested) < 0 ||
+                requested < 1 || requested > 3 ||
+                (reversalTypeSpecified && requested != reversalType)) {
+                opserr << "WARNING RIVASAND02 -reversalType requires 1, 2 or 3; "
+                       << "conflicting duplicate values are not allowed" << endln;
+                return 0;
+            }
+            reversalType = requested;
+            reversalTypeSpecified = true;
         } else if (std::strcmp(option, "-pResidual") == 0) {
             count = 1;
             if (OPS_GetDoubleInput(&count, &residualPressure) < 0 ||
@@ -208,9 +222,14 @@ createRIVASAND02Material(bool branchReversalResearch)
 
     if (initialStressSpecified && !stageSpecified) stage = 1;
     if (biasVolumeMode < 0) biasVolumeMode = 0;
-    if (branchReversalResearch && reversalLatch) {
-        opserr << "RIVASAND02BranchReversalResearch requires reversal latch disabled"
+    if (branchReversalResearch && reversalType != 2) {
+        opserr << "RIVASAND02BranchReversalResearch requires -reversalType 2"
                << endln;
+        return 0;
+    }
+    if (reversalType != 1 && reversalLatch) {
+        opserr << "RIVASAND02 -reversalType " << reversalType
+               << " requires reversal latch disabled" << endln;
         return 0;
     }
     if (stage != 0 && !initialStressSpecified) {
@@ -225,7 +244,7 @@ createRIVASAND02Material(bool branchReversalResearch)
         values[5], values[6], values[7], values[8], values[9], values[10], values[11],
         rho, fixedSubsteps, stressScale, pMin, tangentPressureFloor,
         residualPressure, geostaticAdmission, stage, initialStress,
-        branchReversalResearch);
+        branchReversalResearch, reversalType);
     if (material == 0 || !material->isValid()) {
         opserr << "WARNING invalid RIVASAND02 material with tag "
                << tag << endln;
@@ -257,7 +276,7 @@ RIVASAND02::RIVASAND02(
     double rho, int fixedSubsteps, double stressScale, double pMin,
     double tangentPressureFloor, double residualPressure,
     bool geostaticAdmission, int initialStage, const Vector &initialStress,
-    bool branchReversalResearch)
+    bool branchReversalResearch, int reversalType)
     : NDMaterial(tag, branchReversalResearch ?
           ND_TAG_RIVASAND02BranchReversalResearch : ND_TAG_RIVASAND02),
       mDr(Dr), mG0(G0), mRho(rho), mStressScale(stressScale),
@@ -266,6 +285,7 @@ RIVASAND02::RIVASAND02(
       mInitialStage(initialStage), mValid(true),
       mGeostaticAdmission(geostaticAdmission),
       mBranchReversalResearch(branchReversalResearch),
+      mReversalType(reversalType == 0 ? (branchReversalResearch ? 2 : 1) : reversalType),
       mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
@@ -283,7 +303,9 @@ RIVASAND02::RIVASAND02(
         mTangentPressureFloor, mParameters.base.p_min);
     setMaterialParameters(G0, M, kd, h, m, zeta, eMax, eMin, Q, R, nG);
 
-    if (!(mStressScale > 0.0) || !(mRho >= 0.0) ||
+    if (mReversalType < 1 || mReversalType > 3 ||
+        (mBranchReversalResearch && mReversalType != 2) ||
+        !(mStressScale > 0.0) || !(mRho >= 0.0) ||
         mFixedSubsteps < 1 || (mStage < 0 || mStage > 2) ||
         !std::isfinite(mDr) || mDr < 0.0 || mDr > 1.0 ||
         !std::isfinite(mParameters.base.p_min) || !(mParameters.base.p_min > 0.0) ||
@@ -310,6 +332,7 @@ RIVASAND02::RIVASAND02(bool branchReversalResearch)
       mStage(0), mInitialStage(0), mValid(false),
       mGeostaticAdmission(false),
       mBranchReversalResearch(branchReversalResearch),
+      mReversalType(branchReversalResearch ? 2 : 1),
       mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
@@ -622,10 +645,10 @@ RIVASAND02::setTrialStrain(const Vector &strain)
     riva_update_info_t information = {};
     const int reversalOverride =
         (mReversalLatch && mLatchValid) ? mLatchedReversal : -1;
-    if (!riva_ib_update_material_reference_ex(
+    if (!riva_ib_update_material_reversal_ex(
             &mParameters, &mMaterial, strainIncrementToTensor(increment),
             mFixedSubsteps, &mTrialState, &stress, &information,
-            reversalOverride, mBranchReversalResearch ? 1 : 0)) {
+            reversalOverride, mReversalType)) {
         mTrialState = mCommittedState;
         mTrialStress = mCommittedStress;
         mTrialStrain = mCommittedStrain;
@@ -794,8 +817,9 @@ RIVASAND02::isValid(void) const
 int
 RIVASAND02::sendSelf(int commitTag, Channel &theChannel)
 {
-    if (mBranchReversalResearch) {
-        opserr << getClassType() << ": research checkpoints and channel transfer are disabled"
+    if (mReversalType != 1) {
+        opserr << getClassType() << " -reversalType " << mReversalType
+               << ": research checkpoints and channel transfer are disabled"
                << endln;
         return -1;
     }
@@ -936,8 +960,9 @@ int
 RIVASAND02::recvSelf(int commitTag, Channel &theChannel,
                         FEM_ObjectBroker &theBroker)
 {
-    if (mBranchReversalResearch) {
-        opserr << getClassType() << ": research checkpoints and channel transfer are disabled"
+    if (mReversalType != 1) {
+        opserr << getClassType() << " -reversalType " << mReversalType
+               << ": research checkpoints and channel transfer are disabled"
                << endln;
         return -1;
     }
@@ -1030,6 +1055,7 @@ RIVASAND02::getStateVector(void)
 const Vector &
 RIVASAND02::getScalarResponse(int responseID)
 {
+    if (responseID == 21) { mScalarOutput(0)=mReversalType; return mScalarOutput; }
     if (responseID == 18) { mScalarOutput(0)=mTangentType; return mScalarOutput; }
     if (responseID == 19) { mScalarOutput(0)=mTangentStatus; return mScalarOutput; }
     if (responseID == 4) {
@@ -1075,6 +1101,8 @@ Response *
 RIVASAND02::setResponse(const char **argv, int argc, OPS_Stream &output)
 {
     if (argc < 1) return 0;
+    if (std::strcmp(argv[0], "reversalType") == 0)
+        return new MaterialResponse(this, 21, getScalarResponse(21));
     if (std::strcmp(argv[0], "TanType") == 0)
         return new MaterialResponse(this, 18, getScalarResponse(18));
     if (std::strcmp(argv[0], "tangentStatus") == 0)
@@ -1124,7 +1152,7 @@ RIVASAND02::setResponse(const char **argv, int argc, OPS_Stream &output)
 int
 RIVASAND02::getResponse(int responseID, Information &materialInfo)
 {
-    if (responseID == 18 || responseID == 19)
+    if (responseID == 18 || responseID == 19 || responseID == 21)
         return materialInfo.setVector(getScalarResponse(responseID));
     if (responseID == 20) return materialInfo.setMatrix(getTangent());
     if (responseID == 1) return materialInfo.setVector(getStress());
@@ -1204,6 +1232,7 @@ RIVASAND02::Print(OPS_Stream &output, int flag)
            << " pResidual=" << mParameters.base.p_residual
            << " geostaticAdmission="
            << (mGeostaticAdmission ? 1 : 0)
+           << " reversalType=" << mReversalType
            << " reversalLatch=" << (mReversalLatch ? 1 : 0)
            << " BiasVolume=" << getBiasVolumeMode()
            << " fieldBiasVolume="

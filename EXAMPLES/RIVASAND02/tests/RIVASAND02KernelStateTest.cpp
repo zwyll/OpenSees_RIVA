@@ -261,7 +261,47 @@ int main()
         return 1;
     }
 
-    std::cout << "PASS: bounded field-bias mean correction; plastic activity "
+    // All public types decide from the same committed state/full increment,
+    // before the local integration loop. Refining nSub cannot add events.
+    for (int type : {1, 2, 3}) {
+        for (double sign : {-1.0, 1.0}) {
+            const tensor_t increment = {0, 0, 0.00001, 0, 0.0001, sign*0.0005};
+            int expected = -1;
+            for (int nsub : {1, 4, 16, 40}) {
+                riva_ib_state_t trial = mapping;
+                riva_update_info_t info = {};
+                if (!riva_ib_update_material_reversal_ex(&parameters, &material,
+                        increment, nsub, &trial, nullptr, &info, -1, type))
+                    return 1;
+                const int events = trial.base.reversals-mapping.base.reversals;
+                if (expected < 0) expected = events;
+                if (events < 0 || events > 1 || events != expected ||
+                    info.reversal_registered != events || info.accepted_substeps != nsub) {
+                    std::cerr << "reversal decision depends on nSub for type " << type << '\n';
+                    return 1;
+                }
+                trial = mapping;
+                if (!riva_ib_update_material_reversal_ex(&parameters, &material,
+                        increment, nsub, &trial, nullptr, &info, 1, type) ||
+                    trial.base.reversals != mapping.base.reversals+1) {
+                    std::cerr << "forced event not applied once for type " << type << '\n';
+                    return 1;
+                }
+            }
+        }
+    }
+    for (int invalid : {-1, 0, 4}) {
+        riva_ib_state_t trial = mapping;
+        if (riva_ib_update_material_reversal_ex(&parameters, &material,
+                latchIncrement, 4, &trial, nullptr, nullptr, -1, invalid) ||
+            !sameState(trial, mapping)) {
+            std::cerr << "invalid reversal type accepted or changed state\n";
+            return 1;
+        }
+    }
+
+    std::cout << "PASS: reversal types 1/2/3 and substep-independent event scheduling; "
+                 "bounded field-bias mean correction; plastic activity "
                  "captured by both backbones; no "
                  "fictitious activation history; state append, restart, and "
                  "reversal-override contracts are stable\n";

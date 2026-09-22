@@ -2399,22 +2399,71 @@ RIVA_IB_HD static inline riva_ib_state_t riva_ib_host_outer_correction(
     return s;
 }
 
+// Type 3 research rule: one full-host elastic predictor, independent of nSub.
+RIVA_IB_HD static inline tensor_t riva_ib_host_stress_ratio_predictor(
+    const riva_ib_parameters_t *p,const riva_material_parameters_t *m,
+    const riva_ib_state_t *s,tensor_t deps)
+{
+    const riva_parameters_t *b=&p->base;
+    const double floor=riva_cone_pressure_floor(b);
+    const double pressure=riva_max(riva_cone_pressure(b,s->base.stress),floor);
+    double shear,bulk;
+    if (s->base.cyclic_phase_active && riva_ib_mapping_gate(p,s)>1.0e-14) {
+        riva_moduli(b,m,pressure,&shear,&bulk);
+        double mb,md,xi;
+        riva_surfaces(b,m,pressure,s->base.void_ratio,&mb,&md,&xi);
+        const double capacity=riva_ib_mapping_capacity(p,s,mb);
+        shear*=riva_ib_mapping_shear_ratio(p,s->mapping_backstress,capacity);
+    } else riva_ib_moduli_for_state(p,m,s,pressure,&shear,&bulk);
+    const double dv=riva_trace(deps);
+    double trial_pressure;
+    if (b->compatibility_enabled) { int hit=0;
+        trial_pressure=riva_pressure_from_confining(b,m,
+            s->base.eps_v_confining+dv,s->base.pressure_anchor,&hit);
+    } else trial_pressure=riva_max(pressure-bulk*dv,floor);
+    const tensor_t trial_deviator=riva_add(riva_dev(s->base.stress),
+        riva_scale(riva_dev(deps),riva_ib_mul_rn(2.0,shear)));
+    return riva_ib_div(trial_deviator,riva_max(trial_pressure,floor));
+}
+
+RIVA_IB_HD static inline int riva_ib_host_stress_ratio_reversal(
+    const riva_ib_parameters_t *p,const riva_material_parameters_t *m,
+    const riva_ib_state_t *s,tensor_t deps)
+{
+    if (!s->base.cyclic_phase_active || riva_ddot(deps,deps)==0.0) return 0;
+    // Use the same mechanical predictor state as the first backbone call.
+    // This conversion removes reversible bias pressure without evolving history.
+    const riva_ib_state_t mechanical=riva_ib_mechanical_state(p,m,s);
+    const tensor_t trial=riva_ib_host_stress_ratio_predictor(p,m,&mechanical,deps);
+    return riva_ddot(riva_sub(trial,mechanical.base.alpha0),
+        riva_sub(trial,mechanical.base.alpha))<0.0;
+}
+
 /* reversal_override: -1 detects from the committed state and host increment;
  * 0 or 1 forces the host-level reversal decision. A host adapter may use
- * this entry point to keep one event decision during repeated trial calls. */
-RIVA_IB_HD static inline int riva_ib_update_material_reference_ex(
+ * this entry point to keep one event decision during repeated trial calls.
+ * reversal_type: 1 earlier strain rule, 2 accumulated branch reference,
+ * 3 host-increment UMAT stress-ratio rule. Types 2 and 3 are research modes. */
+RIVA_IB_HD static inline int riva_ib_update_material_reversal_ex(
     const riva_ib_parameters_t *p,const riva_material_parameters_t *m,
     tensor_t deps,int32_t nsub,riva_ib_state_t *state,tensor_t *stress_new,
-    riva_update_info_t *info,int32_t reversal_override,int32_t branch_reference)
+    riva_update_info_t *info,int32_t reversal_override,int32_t reversal_type)
 {
     if (!p || !m || !state || !state->base.initialized || nsub<1 ||
+        reversal_type<1 || reversal_type>3 ||
         !riva_material_parameters_valid(&p->base,m) || !riva_finite_tensor(deps))
         return 0;
-    const int objective=p->base.objective_reversal_enabled;
+    const int host_ratio=reversal_type==3 && state->base.cyclic_phase_active;
+    // Preserve the type-3 variant's strain-based initialization before the
+    // cyclic stage. Types 1 and 2 retain their existing kernel flag semantics.
+    const int objective=reversal_type==3 ? !state->base.cyclic_phase_active :
+        p->base.objective_reversal_enabled;
     int valid=0;
     const tensor_t direction=objective?riva_ib_host_direction(&p->base,deps,&valid):
         riva_zero();
-    const int reversal=objective?
+    const int reversal=host_ratio?
+        (reversal_override<0?riva_ib_host_stress_ratio_reversal(p,m,state,deps):
+            (reversal_override!=0)):objective?
         (reversal_override<0?riva_ib_host_reversal(&p->base,&state->base,
             direction,valid):(reversal_override!=0)):0;
     const riva_ib_state_t initial=*state;
@@ -2427,9 +2476,10 @@ RIVA_IB_HD static inline int riva_ib_update_material_reference_ex(
     const tensor_t sub=riva_ib_div(deps,(double)nsub);
     for (int32_t i=0;i<nsub;i++)
         current=riva_ib_forward_euler(p,m,&current,sub,
-            objective && reversal && i==0,!objective,phase_active);
+            (objective || host_ratio) && reversal && i==0,
+            !(objective || host_ratio),phase_active);
     if (objective && valid) {
-        if (branch_reference) {
+        if (reversal_type!=1) {
             // Research successor: retain the loading branch reference when
             // consecutive increment directions rotate gradually. These six
             // slots hold accumulated branch strain, not a unit direction;
@@ -2473,8 +2523,19 @@ RIVA_IB_HD static inline int riva_ib_update_material_reference_ex(
         !isfinite(current.base.lambda_total) || !isfinite(current.base.void_ratio))
         return 0;
     *state=current; if (stress_new) *stress_new=current.base.stress;
-    if (info) { info->accepted_substeps=nsub; info->reversal_registered=reversal; }
+    if (info) { info->accepted_substeps=nsub; info->reversal_registered=host_ratio?
+        (current.base.reversals>initial.base.reversals):reversal; }
     return 1;
+}
+
+// Preserve the existing strain-reference entry point and its default behavior.
+RIVA_IB_HD static inline int riva_ib_update_material_reference_ex(
+    const riva_ib_parameters_t *p,const riva_material_parameters_t *m,
+    tensor_t deps,int32_t nsub,riva_ib_state_t *state,tensor_t *stress_new,
+    riva_update_info_t *info,int32_t reversal_override,int32_t branch_reference)
+{
+    return riva_ib_update_material_reversal_ex(p,m,deps,nsub,state,stress_new,
+        info,reversal_override,branch_reference ? 2 : 1);
 }
 
 // Preserve the original entry point and its event rule for RIVASAND02.

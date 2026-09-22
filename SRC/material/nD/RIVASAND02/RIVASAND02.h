@@ -27,7 +27,8 @@ public:
                   double tangentPressureFloor, double residualPressure,
                   bool geostaticAdmission, int initialStage,
                   const Vector &initialStress,
-                  bool branchReversalResearch = false);
+                  bool branchReversalResearch = false,
+                  int reversalType = 0);
     RIVASAND02(bool branchReversalResearch = false);
     virtual ~RIVASAND02();
 
@@ -65,7 +66,7 @@ public:
     bool isValid(void) const;
     int setTangentType(int type);
     void setReversalLatch(bool on) {
-        mReversalLatch = on && !mBranchReversalResearch;
+        mReversalLatch = on && mReversalType == 1;
     }
     void setFieldBiasMeanCorrection(bool on) {
         mParameters.field_bias_mean_correction_enabled = on ? 1 : 0;
@@ -119,8 +120,11 @@ private:
     bool mTrialPlasticLoading = false;
     bool mCommittedPlasticLoading = false;
     bool mGeostaticAdmission;
-    // Set only by the separately named factory; unsupported in checkpoints.
+    // Preserve the old factory/class identity independently of the selector.
     const bool mBranchReversalResearch;
+    // 1: earlier strain rule; 2: branch reference; 3: host UMAT rule.
+    // Types 2 and 3 are research modes without checkpoint/channel support.
+    const int mReversalType;
     /* Freeze one host-level reversal decision across the trial evaluations
      * belonging to a single OpenSees load step. The enabled setting is
      * serialized; the transient decision is cleared at every committed or
