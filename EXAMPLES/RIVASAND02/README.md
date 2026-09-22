@@ -46,6 +46,7 @@ nDMaterial RIVASAND02 tag Dr G0 M kd h m zeta \
     <-rho value> <-nSub integer> <-stressScale value> \
     <-pMin value> <-tangentPMin value> <-TanType 0|1> <-pResidual value> \
     <-geostaticAdmission> <-reversalType 1|2|3> <-reversalLatch> \
+    <-reversalGuard value> \
     <-BiasVolume 0|1|2> \
     <-stage 0|1|2> \
     <-initialStress sxx syy szz sxy syz sxz>
@@ -83,8 +84,8 @@ reversal reset in the first substep. With the latch disabled, each Newton
 trial recomputes that decision from the committed material state. This does
 not freeze the decision across Newton iterations. Type 3 preserves the
 tested host-increment variant's strain-based initialization until cyclic
-activation, followed by its literal UMAT-type rule; it adds no switching
-tolerance or convergence guard.
+activation, followed by its literal UMAT-type rule unless the separate
+research eligibility guard below is explicitly enabled.
 
 Existing `RIVASAND02` inputs retain type 1. The older
 `RIVASAND02BranchReversalResearch` command retains type 2 and accepts only
@@ -100,6 +101,25 @@ reject `-reversalLatch` and disable checkpoint/channel transfer; they must
 be rerun from initialization. Their calibration, mesh/timestep objectivity,
 and coupled-analysis convergence remain research limitations. Selecting
 a reversal rule does not select or modify element damping.
+
+On `research/rivasand02-reversal-guard`, `-reversalGuard value` adds an
+opt-in eligibility guard to type 3. Its default is `0` (off), preserving
+all three existing reversal rules. A positive, finite, dimensionless value
+is accepted only with `-reversalType 3`. For the tested research setting,
+append `-reversalType 3 -reversalGuard 0.0001` to a complete material command.
+The value sets the minimum pressure-normalized stress excursion since the
+last reversal before another event is eligible. The inherited tiny-strain
+cutoff also applies when the guard is enabled. It is evaluated once per
+trial increment from committed history; it does not latch Newton iterations.
+
+Copies preserve this material-specific setting. Query `reversalGuard` using
+the same element response syntax as `reversalType`. Conflicting duplicate,
+negative, nonfinite, missing and nonnumeric values are rejected. The option
+cannot be changed during analysis. Type-3 latch and checkpoint restrictions
+remain in force. The guard is a research event rule: it reduces tiny-loading
+switching in tested cases but does not establish full-duration convergence,
+mesh/timestep independence or a better experimental fit. See
+[guard usage and validation](REVERSAL_GUARD_VALIDATION.md).
 
 `-TanType 0` (default) preserves the elastic tangent. `-TanType 1` selects
 the safeguarded continuum elastoplastic backbone tangent, including the

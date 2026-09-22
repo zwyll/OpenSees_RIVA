@@ -33,7 +33,7 @@ proc trial {gx gy ez} {
     return [concat [eleResponse 1 stress] [eleResponse 1 state]]
 }
 
-proc history {name options expected speculative} {
+proc history {name options expected speculative {path rotating}} {
     specimen $name $options $expected
     set result {}
     set previous {0 0 0}
@@ -42,6 +42,7 @@ proc history {name options expected speculative} {
         set gx [expr {.003*sin(2*acos(-1)*$t)}]
         set gy [expr {.0015*(1-cos(2*acos(-1)*$t))}]
         set ez [expr {.0001*$t}]
+        if {$path eq "cyclic"} {set gy 0; set ez 0}
         set committed [concat [eleResponse 1 stress] [eleResponse 1 state]]
         set reversals [eleResponse 1 reversals]
         if {$speculative} {
@@ -82,6 +83,16 @@ foreach {name options} {
     RIVASAND02 {-reversalLatch -reversalType 3}
     RIVASAND02BranchReversalResearch {-reversalType 1}
     RIVASAND02BranchReversalResearch {-reversalType 3}
+    RIVASAND02 {-reversalGuard 0.0001}
+    RIVASAND02 {-reversalType 2 -reversalGuard 0.0001}
+    RIVASAND02BranchReversalResearch {-reversalGuard 0.0001}
+    RIVASAND02 {-reversalType 3 -reversalGuard -1}
+    RIVASAND02 {-reversalType 3 -reversalGuard Inf}
+    RIVASAND02 {-reversalType 3 -reversalGuard NaN}
+    RIVASAND02 {-reversalType 3 -reversalGuard bad}
+    RIVASAND02 {-reversalType 3 -reversalGuard}
+    RIVASAND02 {-reversalType 3 -reversalGuard 0 -reversalGuard 0.0001}
+    RIVASAND02 {-reversalType 3 -reversalGuard 0.0001 -reversalLatch}
 } {
     wipe
     model BasicBuilder -ndm 3 -ndf 4
@@ -111,7 +122,46 @@ if {[history RIVASAND02BranchReversalResearch {-reversalType 2} 2 0] ne $baselin
 if {$baseline(1) eq $baseline(2) || $baseline(2) eq $baseline(3) || $baseline(1) eq $baseline(3)} {
     error "Rotating path did not distinguish the three rules"
 }
+
+foreach mode {1 2 3} {
+    if {[history RIVASAND02 [list -reversalType $mode -reversalGuard 0] $mode 0] ne $baseline($mode)} {
+        error "Explicit zero guard changed type $mode"
+    }
+}
+set literalCyclic [history RIVASAND02 {-reversalType 3} 3 0 cyclic]
+foreach guard {0.0001 1.0} {
+    set options [list -reversalGuard $guard -reversalType 3 -reversalGuard $guard]
+    set guarded [history RIVASAND02 $options 3 0 cyclic]
+    if {[eleResponse 1 reversalGuard] != $guard} {error "Copy lost guard setting"}
+    foreach tangent {0 1} {
+        if {[history RIVASAND02 [concat $options [list -TanType $tangent]] 3 1 cyclic] ne $guarded} {
+            error "Guarded path depends on speculative trials or tangent choice"
+        }
+    }
+    database File "$output/unsupported_guard_checkpoint_$guard"
+    if {![catch {save 1}]} {error "Guarded type 3 checkpoint unexpectedly succeeded"}
+}
+if {$guarded eq $literalCyclic} {error "Large synthetic guard did not affect events"}
+
+# Distinct guard settings must coexist within one Domain (no global switch).
+specimen RIVASAND02 {-reversalType 3 -reversalGuard 0.0001} 3
+nDMaterial RIVASAND02 2 {*}$row -stage 1 -initialStress -100 -100 -100 0 0 0 -nSub 16 -BiasVolume 1 -reversalType 3
+element SSPbrickUP 2 1 2 3 4 5 6 7 8 2 550000 1 1e-5 1e-5 1e-5 0.6 2.381e-6 0 0 0
+columnProbe update
+columnProbe commit
+for {set i 1} {$i<=128} {incr i} {
+    trial [expr {1e-10*sin(2*acos(-1)*$i/32)}] 0 0
+    columnProbe commit
+}
+if {[eleResponse 1 reversalGuard]!=0.0001 || [eleResponse 2 reversalGuard]!=0 ||
+    [eleResponse 1 reversals]!=0 || [eleResponse 2 reversals]<=0} {
+    error "Guard failed to suppress tiny cycles independently per material"
+}
+reset
+if {[eleResponse 1 reversalGuard]!=0.0001 || [eleResponse 2 reversalGuard]!=0} {
+    error "Revert-to-start lost guard configuration"
+}
 specimen RIVASAND02 {-reversalType 1 -reversalLatch} 1
 if {[eleResponse 1 reversalLatch]!=1} {error "Type 1 lost latch support"}
-puts "REVERSAL_TYPES_COMPLETE: parser, copies, defaults, alias, rollback, trial independence, research guards"
+puts "REVERSAL_TYPES_COMPLETE: parser, copies, defaults, alias, rollback, trial independence, eligibility guard, research restrictions"
 wipe

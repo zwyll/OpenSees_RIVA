@@ -28,7 +28,7 @@ public:
                   bool geostaticAdmission, int initialStage,
                   const Vector &initialStress,
                   bool branchReversalResearch = false,
-                  int reversalType = 0);
+                  int reversalType = 0, double reversalGuard = 0.0);
     RIVASAND02(bool branchReversalResearch = false);
     virtual ~RIVASAND02();
 
@@ -125,6 +125,8 @@ private:
     // 1: earlier strain rule; 2: branch reference; 3: host UMAT rule.
     // Types 2 and 3 are research modes without checkpoint/channel support.
     const int mReversalType;
+    // Opt-in type-3 eligibility threshold; zero preserves the literal rule.
+    const double mReversalGuard;
     /* Freeze one host-level reversal decision across the trial evaluations
      * belonging to a single OpenSees load step. The enabled setting is
      * serialized; the transient decision is cleared at every committed or

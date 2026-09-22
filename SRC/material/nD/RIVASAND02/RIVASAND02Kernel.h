@@ -2428,9 +2428,18 @@ RIVA_IB_HD static inline tensor_t riva_ib_host_stress_ratio_predictor(
 
 RIVA_IB_HD static inline int riva_ib_host_stress_ratio_reversal(
     const riva_ib_parameters_t *p,const riva_material_parameters_t *m,
-    const riva_ib_state_t *s,tensor_t deps)
+    const riva_ib_state_t *s,tensor_t deps,double reversal_guard=0.0)
 {
     if (!s->base.cyclic_phase_active || riva_ddot(deps,deps)==0.0) return 0;
+    // Research eligibility guard, evaluated once from the committed input
+    // state. Zero leaves the literal rule (including tiny increments) intact.
+    if (reversal_guard>0.0) {
+        if (riva_norm(deps)<=p->base.reversal_strain_deadband) return 0;
+        const double excursion=riva_norm(riva_sub(riva_dev(s->base.stress),
+            s->base.last_reversal_deviator));
+        if (excursion<reversal_guard*
+            riva_max(s->base.pressure_anchor,p->base.p_min)) return 0;
+    }
     // Use the same mechanical predictor state as the first backbone call.
     // This conversion removes reversible bias pressure without evolving history.
     const riva_ib_state_t mechanical=riva_ib_mechanical_state(p,m,s);
@@ -2443,14 +2452,19 @@ RIVA_IB_HD static inline int riva_ib_host_stress_ratio_reversal(
  * 0 or 1 forces the host-level reversal decision. A host adapter may use
  * this entry point to keep one event decision during repeated trial calls.
  * reversal_type: 1 earlier strain rule, 2 accumulated branch reference,
- * 3 host-increment UMAT stress-ratio rule. Types 2 and 3 are research modes. */
+ * 3 host-increment UMAT stress-ratio rule. Types 2 and 3 are research modes.
+ * reversal_guard: optional nonnegative type-3 eligibility threshold; zero
+ * preserves the literal rule. No guard decision is latched across trials. */
 RIVA_IB_HD static inline int riva_ib_update_material_reversal_ex(
     const riva_ib_parameters_t *p,const riva_material_parameters_t *m,
     tensor_t deps,int32_t nsub,riva_ib_state_t *state,tensor_t *stress_new,
-    riva_update_info_t *info,int32_t reversal_override,int32_t reversal_type)
+    riva_update_info_t *info,int32_t reversal_override,int32_t reversal_type,
+    double reversal_guard=0.0)
 {
     if (!p || !m || !state || !state->base.initialized || nsub<1 ||
         reversal_type<1 || reversal_type>3 ||
+        !isfinite(reversal_guard) || reversal_guard<0.0 ||
+        (reversal_guard>0.0 && reversal_type!=3) ||
         !riva_material_parameters_valid(&p->base,m) || !riva_finite_tensor(deps))
         return 0;
     const int host_ratio=reversal_type==3 && state->base.cyclic_phase_active;
@@ -2462,7 +2476,7 @@ RIVA_IB_HD static inline int riva_ib_update_material_reversal_ex(
     const tensor_t direction=objective?riva_ib_host_direction(&p->base,deps,&valid):
         riva_zero();
     const int reversal=host_ratio?
-        (reversal_override<0?riva_ib_host_stress_ratio_reversal(p,m,state,deps):
+        (reversal_override<0?riva_ib_host_stress_ratio_reversal(p,m,state,deps,reversal_guard):
             (reversal_override!=0)):objective?
         (reversal_override<0?riva_ib_host_reversal(&p->base,&state->base,
             direction,valid):(reversal_override!=0)):0;
