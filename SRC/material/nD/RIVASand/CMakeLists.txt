@@ -10,6 +10,7 @@ target_sources(OPS_Material
     PUBLIC
       RIVASand.h
       RIVASandKernel.h
+      RIVASandContinuumTangent.h
 )
 
 target_include_directories(OPS_Material PUBLIC ${CMAKE_CURRENT_LIST_DIR})

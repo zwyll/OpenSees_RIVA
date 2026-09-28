@@ -64,6 +64,9 @@ pattern Plain 1 Linear { load 5 1.0 0.0 0.0 }
 configureAnalysis
 
 set copiedLatch [lindex [eleResponse 1 material 1 reversalLatch] 0]
+if {[eleResponse 1 material 1 reversalType] != 1} {
+    error "default reversal type changed during material copy"
+}
 if {$copiedLatch != 1.0} {
     error "element material copy lost -reversalLatch"
 }
@@ -93,6 +96,9 @@ set baselineStress [eleResponse 1 material 1 stress]
 
 restore 101
 configureAnalysis
+if {[eleResponse 1 material 1 reversalType] != 1} {
+    error "sendSelf/recvSelf lost default reversal type"
+}
 set restoredLatch [lindex [eleResponse 1 material 1 reversalLatch] 0]
 if {$restoredLatch != 1.0} {
     error "sendSelf/recvSelf lost -reversalLatch"

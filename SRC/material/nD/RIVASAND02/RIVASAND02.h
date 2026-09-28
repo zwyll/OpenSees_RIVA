@@ -26,8 +26,10 @@ public:
                   int fixedSubsteps, double stressScale, double pMin,
                   double tangentPressureFloor, double residualPressure,
                   bool geostaticAdmission, int initialStage,
-                  const Vector &initialStress);
-    RIVASAND02();
+                  const Vector &initialStress,
+                  bool branchReversalResearch = false,
+                  int reversalType = 0, double reversalGuard = 0.0);
+    RIVASAND02(bool branchReversalResearch = false);
     virtual ~RIVASAND02();
 
     int setTrialStrain(const Vector &strain);
@@ -49,6 +51,7 @@ public:
     NDMaterial *getCopy(const char *code);
     const char *getType(void) const;
     int getOrder(void) const;
+    const char *getClassType(void) const override;
 
     int sendSelf(int commitTag, Channel &theChannel);
     int recvSelf(int commitTag, Channel &theChannel,
@@ -61,7 +64,10 @@ public:
     void Print(OPS_Stream &output, int flag = 0);
 
     bool isValid(void) const;
-    void setReversalLatch(bool on) { mReversalLatch = on; }
+    int setTangentType(int type);
+    void setReversalLatch(bool on) {
+        mReversalLatch = on && mReversalType == 1;
+    }
     void setFieldBiasMeanCorrection(bool on) {
         mParameters.field_bias_mean_correction_enabled = on ? 1 : 0;
     }
@@ -83,6 +89,7 @@ private:
     int beginDynamicFromCommittedState(void);
     void buildTangent(double bulk, double shear, Matrix &matrix) const;
     void updateTrialTangent(void);
+    bool buildContinuumTangent(double result[6][6]) const;
     double initialVoidRatio(void) const;
     // Derived from the existing serialized flags; no additional restart state.
     int getBiasVolumeMode(void) const {
@@ -108,7 +115,18 @@ private:
     int mStage;
     int mInitialStage;
     bool mValid;
+    int mTangentType = 0;
+    int mTangentStatus = 0;
+    bool mTrialPlasticLoading = false;
+    bool mCommittedPlasticLoading = false;
     bool mGeostaticAdmission;
+    // Preserve the old factory/class identity independently of the selector.
+    const bool mBranchReversalResearch;
+    // 1: earlier strain rule; 2: branch reference; 3: host UMAT rule.
+    // Types 2 and 3 are research modes without checkpoint/channel support.
+    const int mReversalType;
+    // Opt-in type-3 eligibility threshold; zero preserves the literal rule.
+    const double mReversalGuard;
     /* Freeze one host-level reversal decision across the trial evaluations
      * belonging to a single OpenSees load step. The enabled setting is
      * serialized; the transient decision is cleared at every committed or
@@ -134,5 +152,6 @@ private:
 };
 
 void *OPS_RIVASAND02Material(void);
+void *OPS_RIVASAND02BranchReversalResearchMaterial(void);
 
 #endif

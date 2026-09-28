@@ -1321,6 +1321,9 @@ TclPackageClassBroker::getNewNDMaterial(int classTag)
   case ND_TAG_RIVASAND02:
     return new RIVASAND02();
 
+  case ND_TAG_RIVASAND02BranchReversalResearch:
+    return new RIVASAND02(true);
+
   case ND_TAG_J2CyclicBoundingSurface:
     return new J2CyclicBoundingSurface();
 

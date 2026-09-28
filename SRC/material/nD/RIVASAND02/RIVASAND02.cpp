@@ -3,6 +3,7 @@
 ** ****************************************************************** */
 
 #include "RIVASAND02.h"
+#include "../RIVASand/RIVASandContinuumTangent.h"
 
 #include <Channel.h>
 #include <FEM_ObjectBroker.h>
@@ -22,13 +23,15 @@ using namespace riva_ib_native;
 namespace {
 
 const int RIVASerializedSize = 183;
-const int RIVAAdapterRevision = 1; // required G0 input and serialized stiffness
+const int RIVAAdapterRevision = 2; // tangent selector/activity in configuration bits
 
 enum RIVAAdapterConfigurationFlag {
     RIVAGeostaticAdmissionFlag = 1,
     RIVAReversalLatchFlag = 2,
     RIVAFieldBiasMeanCorrectionFlag = 4,
-    RIVANoBiasVolumeFlag = 8
+    RIVANoBiasVolumeFlag = 8,
+    RIVAContinuumTangentFlag = 16,
+    RIVAPlasticLoadingFlag = 32
 };
 
 bool finiteVector(const Vector &value)
@@ -40,16 +43,17 @@ bool finiteVector(const Vector &value)
 
 } // namespace
 
-void *
-OPS_RIVASAND02Material(void)
+static void *
+createRIVASAND02Material(bool branchReversalResearch)
 {
     const int requiredValues = 12;
     if (OPS_GetNumRemainingInputArgs() < requiredValues + 1) {
         opserr << "Want: nDMaterial RIVASAND02 tag Dr G0 M kd h m zeta "
                << "eMax eMin Q R nG <-rho value> <-nSub value> "
                << "<-stressScale value> <-pMin value> "
-               << "<-tangentPMin value> <-pResidual value> "
-               << "<-geostaticAdmission> <-reversalLatch> "
+               << "<-tangentPMin value> <-TanType 0|1> <-pResidual value> "
+               << "<-geostaticAdmission> <-reversalType 1|2|3> <-reversalLatch> "
+               << "<-reversalGuard value> "
                << "<-BiasVolume 0|1|2> <-stage 0|1|2> "
                << "<-initialStress sxx syy szz sxy syz sxz>" << endln;
         return 0;
@@ -76,6 +80,12 @@ OPS_RIVASAND02Material(void)
     double tangentPressureFloor = -1.0;
     double residualPressure = 0.0;
     bool geostaticAdmission = false;
+    int tangentType = 0;
+    bool tangentTypeSpecified = false;
+    int reversalType = branchReversalResearch ? 2 : 1;
+    bool reversalTypeSpecified = false;
+    double reversalGuard = 0.0;
+    bool reversalGuardSpecified = false;
     bool reversalLatch = false;
     int biasVolumeMode = -1; // Unspecified; use mode 0 after parsing.
     int fixedSubsteps = 1;
@@ -127,6 +137,43 @@ OPS_RIVASAND02Material(void)
                        << "; value must be positive" << endln;
                 return 0;
             }
+        } else if (std::strcmp(option, "-TanType") == 0) {
+            int requested = -1;
+            count = 1;
+            if (OPS_GetIntInput(&count, &requested) < 0 ||
+                (requested != 0 && requested != 1) ||
+                (tangentTypeSpecified && requested != tangentType)) {
+                opserr << "WARNING RIVASAND02 -TanType requires 0 or 1; "
+                       << "conflicting duplicate values are not allowed" << endln;
+                return 0;
+            }
+            tangentType = requested;
+            tangentTypeSpecified = true;
+        } else if (std::strcmp(option, "-reversalType") == 0) {
+            int requested = 0;
+            count = 1;
+            if (OPS_GetIntInput(&count, &requested) < 0 ||
+                requested < 1 || requested > 3 ||
+                (reversalTypeSpecified && requested != reversalType)) {
+                opserr << "WARNING RIVASAND02 -reversalType requires 1, 2 or 3; "
+                       << "conflicting duplicate values are not allowed" << endln;
+                return 0;
+            }
+            reversalType = requested;
+            reversalTypeSpecified = true;
+        } else if (std::strcmp(option, "-reversalGuard") == 0) {
+            double requested = 0.0;
+            count = 1;
+            if (OPS_GetDoubleInput(&count, &requested) < 0 ||
+                !std::isfinite(requested) || requested < 0.0 ||
+                (reversalGuardSpecified && requested != reversalGuard)) {
+                opserr << "WARNING RIVASAND02 -reversalGuard requires a finite "
+                       << "nonnegative value; conflicting duplicates are not allowed"
+                       << endln;
+                return 0;
+            }
+            reversalGuard = requested;
+            reversalGuardSpecified = true;
         } else if (std::strcmp(option, "-pResidual") == 0) {
             count = 1;
             if (OPS_GetDoubleInput(&count, &residualPressure) < 0 ||
@@ -191,6 +238,21 @@ OPS_RIVASAND02Material(void)
 
     if (initialStressSpecified && !stageSpecified) stage = 1;
     if (biasVolumeMode < 0) biasVolumeMode = 0;
+    if (branchReversalResearch && reversalType != 2) {
+        opserr << "RIVASAND02BranchReversalResearch requires -reversalType 2"
+               << endln;
+        return 0;
+    }
+    if (reversalType != 1 && reversalLatch) {
+        opserr << "RIVASAND02 -reversalType " << reversalType
+               << " requires reversal latch disabled" << endln;
+        return 0;
+    }
+    if (reversalGuard > 0.0 && reversalType != 3) {
+        opserr << "RIVASAND02 positive -reversalGuard requires -reversalType 3"
+               << endln;
+        return 0;
+    }
     if (stage != 0 && !initialStressSpecified) {
         opserr << "WARNING RIVASAND02 -stage 1 or 2 requires a compressive "
                << "-initialStress; otherwise create at stage 0, establish "
@@ -202,7 +264,8 @@ OPS_RIVASAND02Material(void)
         tag, values[0], values[1], values[2], values[3], values[4],
         values[5], values[6], values[7], values[8], values[9], values[10], values[11],
         rho, fixedSubsteps, stressScale, pMin, tangentPressureFloor,
-        residualPressure, geostaticAdmission, stage, initialStress);
+        residualPressure, geostaticAdmission, stage, initialStress,
+        branchReversalResearch, reversalType, reversalGuard);
     if (material == 0 || !material->isValid()) {
         opserr << "WARNING invalid RIVASAND02 material with tag "
                << tag << endln;
@@ -212,7 +275,20 @@ OPS_RIVASAND02Material(void)
     material->setReversalLatch(reversalLatch);
     material->setFieldBiasMeanCorrection(biasVolumeMode == 2);
     material->setBiasReversibleVolumeEnabled(biasVolumeMode != 1);
+    material->setTangentType(tangentType);
     return material;
+}
+
+void *
+OPS_RIVASAND02Material(void)
+{
+    return createRIVASAND02Material(false);
+}
+
+void *
+OPS_RIVASAND02BranchReversalResearchMaterial(void)
+{
+    return createRIVASAND02Material(true);
 }
 
 RIVASAND02::RIVASAND02(
@@ -220,13 +296,18 @@ RIVASAND02::RIVASAND02(
     double zeta, double eMax, double eMin, double Q, double R, double nG,
     double rho, int fixedSubsteps, double stressScale, double pMin,
     double tangentPressureFloor, double residualPressure,
-    bool geostaticAdmission, int initialStage, const Vector &initialStress)
-    : NDMaterial(tag, ND_TAG_RIVASAND02),
+    bool geostaticAdmission, int initialStage, const Vector &initialStress,
+    bool branchReversalResearch, int reversalType, double reversalGuard)
+    : NDMaterial(tag, branchReversalResearch ?
+          ND_TAG_RIVASAND02BranchReversalResearch : ND_TAG_RIVASAND02),
       mDr(Dr), mG0(G0), mRho(rho), mStressScale(stressScale),
       mTangentPressureFloor(0.0),
       mFixedSubsteps(fixedSubsteps), mStage(initialStage),
       mInitialStage(initialStage), mValid(true),
       mGeostaticAdmission(geostaticAdmission),
+      mBranchReversalResearch(branchReversalResearch),
+      mReversalType(reversalType == 0 ? (branchReversalResearch ? 2 : 1) : reversalType),
+      mReversalGuard(reversalGuard),
       mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
@@ -244,7 +325,11 @@ RIVASAND02::RIVASAND02(
         mTangentPressureFloor, mParameters.base.p_min);
     setMaterialParameters(G0, M, kd, h, m, zeta, eMax, eMin, Q, R, nG);
 
-    if (!(mStressScale > 0.0) || !(mRho >= 0.0) ||
+    if (mReversalType < 1 || mReversalType > 3 ||
+        !std::isfinite(mReversalGuard) || mReversalGuard < 0.0 ||
+        (mReversalGuard > 0.0 && mReversalType != 3) ||
+        (mBranchReversalResearch && mReversalType != 2) ||
+        !(mStressScale > 0.0) || !(mRho >= 0.0) ||
         mFixedSubsteps < 1 || (mStage < 0 || mStage > 2) ||
         !std::isfinite(mDr) || mDr < 0.0 || mDr > 1.0 ||
         !std::isfinite(mParameters.base.p_min) || !(mParameters.base.p_min > 0.0) ||
@@ -263,12 +348,16 @@ RIVASAND02::RIVASAND02(
     revertToStart();
 }
 
-RIVASAND02::RIVASAND02()
-    : NDMaterial(0, ND_TAG_RIVASAND02),
+RIVASAND02::RIVASAND02(bool branchReversalResearch)
+    : NDMaterial(0, branchReversalResearch ?
+          ND_TAG_RIVASAND02BranchReversalResearch : ND_TAG_RIVASAND02),
       mDr(0.0), mG0(RIVA_REFERENCE_G0), mRho(0.0), mStressScale(1.0),
       mTangentPressureFloor(0.0), mFixedSubsteps(1),
       mStage(0), mInitialStage(0), mValid(false),
       mGeostaticAdmission(false),
+      mBranchReversalResearch(branchReversalResearch),
+      mReversalType(branchReversalResearch ? 2 : 1),
+      mReversalGuard(0.0),
       mReversalLatch(false), mLatchValid(false), mLatchedReversal(0),
       mInitialStress(6), mCommittedStrain(6), mTrialStrain(6),
       mCommittedStress(6), mTrialStress(6), mTangent(6, 6),
@@ -333,6 +422,7 @@ RIVASAND02::initialVoidRatio(void) const
 int
 RIVASAND02::activateFromCommittedStress(void)
 {
+    mTrialPlasticLoading = mCommittedPlasticLoading = false;
     tensor_t stress = stressToTensor(mCommittedStress);
     const double physicalPressure = riva_pressure(stress);
     const double conePressure = riva_cone_pressure(&mParameters.base, stress);
@@ -386,6 +476,7 @@ RIVASAND02::beginDynamicFromCommittedState(void)
     reference.xy = reference.yz = reference.xz = 0.0;
     if (!riva_ib_begin_dynamic_phase(
             &mParameters, &mMaterial, &reference, &state)) return -1;
+    mTrialPlasticLoading = mCommittedPlasticLoading = false;
     mCommittedState = state;
     mTrialState = state;
     tensorToStress(state.base.stress, mCommittedStress);
@@ -436,9 +527,60 @@ RIVASAND02::buildTangent(double bulk, double shear, Matrix &matrix) const
     matrix(5, 5) = shear;
 }
 
+bool
+RIVASAND02::buildContinuumTangent(double result[6][6]) const
+{
+    const riva_ib_state_t &s=mTrialState;
+    const riva_parameters_t &b=mParameters.base;
+    const double pressure=riva_cone_pressure(&b,s.base.stress);
+    if (!s.base.initialized || pressure<=mTangentPressureFloor ||
+        pressure<=riva_cone_pressure_floor(&b) || s.base.beta<=1.e-6 ||
+        (s.base.D_re>0.0 && s.base.eps_v_reversible<=0.0)) return false;
+    double mb,md,xi;
+    riva_surfaces(&b,&mMaterial,pressure,s.base.void_ratio,&mb,&md,&xi);
+    if (riva_norm(s.base.alpha)>=sqrt(2.0/3.0)*mb*(1.0-1.e-10)) return false;
+    double shear,bulk,hardening;
+    double beta=s.base.beta, dilatancy=s.base.D, kinematic=0.0;
+    tensor_t normal=s.base.n,flow=s.base.n;
+    const double gate=riva_ib_mapping_gate(&mParameters,&s);
+    if (gate>1.e-14 && s.base.cyclic_phase_active) {
+        riva_moduli(&b,&mMaterial,pressure,&shear,&bulk);
+        const double capacity=riva_ib_mapping_capacity(&mParameters,&s,mb);
+        shear*=riva_ib_mapping_shear_ratio(&mParameters,s.mapping_backstress,capacity);
+        const tensor_t center=riva_add(riva_add(riva_scale(s.base.alpha0,1.0-gate),
+            riva_scale(s.mapping_anchor,gate)),riva_scale(s.mapping_backstress,gate));
+        tensor_t ray; int failed=0;
+        riva_ib_mapping_intersection(&mParameters,s.base.alpha,center,mb,
+            s.base.last_host_deviatoric_strain_direction,&beta,&normal,&ray,&failed);
+        if (failed) return false;
+        flow=riva_ib_mapping_flow(&mParameters,normal,ray,s.mapping_directional_fabric,
+            &s.base.static_bias_tensor);
+        const tensor_t fabric=riva_add(s.base.fabric,riva_scale(
+            s.mapping_directional_fabric,gate*mParameters.mapping_fabric_dilatancy_weight));
+        double dir,dre;
+        riva_ib_dilatancy(&b,&mMaterial,s.base.alpha,flow,beta,fabric,pressure,
+            s.base.void_ratio,s.base.eps_v_irreversible,s.base.eps_v_reversible,&dir,&dre);
+        dir*=riva_ib_irreversible_factor(&mParameters,&s)*
+            riva_ib_directional_phase_scale(&mParameters,&s,s.mapping_backstress,capacity);
+        dilatancy=dir+dre;
+        tensor_t rate;
+        riva_ib_backstress_update(&mParameters,s.mapping_backstress,flow,capacity,0.0,&rate);
+        kinematic=gate*pressure*riva_ddot(normal,rate);
+        hardening=pressure*mMaterial.h*pow(riva_max(pressure,b.p_min)/b.p_ref,-b.q_H)*
+            pow(riva_max(beta,1.e-12),mMaterial.m);
+    } else {
+        riva_ib_moduli_for_state(&mParameters,&mMaterial,&s,pressure,&shear,&bulk);
+        hardening=pressure*riva_ib_hardening_for_state(&mParameters,&mMaterial,&s,pressure)*
+            pow(riva_max(beta,1.e-12),mMaterial.m);
+    }
+    return riva_continuum::build(shear,bulk,normal,flow,riva_ddot(s.base.alpha,normal),
+        dilatancy,(2.0/3.0)*hardening+kinematic,b.denominator_floor_ratio,result);
+}
+
 void
 RIVASAND02::updateTrialTangent(void)
 {
+    mTangentStatus = 0;
     if (mStage != 0 && mTrialState.base.initialized) {
         double shear = 0.0;
         double bulk = 0.0;
@@ -454,9 +596,9 @@ RIVASAND02::updateTrialTangent(void)
                                  pressure, &shear, &bulk);
         // A rejected global Newton trial can drive auxiliary state variables
         // far outside the committed neighborhood even when the kernel later
-        // reverts. Never expose a non-finite/indefinite material tangent to
-        // the assembled u-p system; use the finite reference tangent for that
-        // rejected trial and let the global algorithm reduce the step.
+        // reverts. Keep the fallback elastic operator finite and positive.
+        // The opt-in continuum operator below is generally nonsymmetric;
+        // unlike the elastic fallback it is not guaranteed positive definite.
         if (std::isfinite(shear) && std::isfinite(bulk) &&
             shear > 0.0 && bulk > 0.0)
             buildTangent(bulk, shear, mTangent);
@@ -465,6 +607,29 @@ RIVASAND02::updateTrialTangent(void)
     } else {
         mTangent = mInitialTangent;
     }
+    if (mTangentType == 1 && mStage != 0) {
+        mTangentStatus = 2; // elastic: inactive or discrete integration event
+        if (mTrialPlasticLoading) {
+            double continuum[6][6];
+            mTangentStatus = 3; // elastic safeguard at a nonsmooth/invalid state
+            if (buildContinuumTangent(continuum)) {
+                for (int i=0;i<6;++i)
+                    for (int j=0;j<6;++j) mTangent(i,j)=continuum[i][j];
+                mTangentStatus = 1;
+            }
+        }
+    }
+}
+
+int
+RIVASAND02::setTangentType(int type)
+{
+    if (type != 0 && type != 1) return -1;
+    if (type == mTangentType) return 0;
+    mTangentType = type;
+    if (type == 0) mTrialPlasticLoading = mCommittedPlasticLoading = false;
+    updateTrialTangent();
+    return 0;
 }
 
 int
@@ -473,8 +638,11 @@ RIVASAND02::setTrialStrain(const Vector &strain)
     if (!mValid || strain.Size() != 6 || !finiteVector(strain)) return -1;
     mTrialStrain = strain;
     Vector increment = mTrialStrain - mCommittedStrain;
+    mTrialPlasticLoading = mCommittedPlasticLoading;
 
     if (mStage == 0) {
+        mTrialPlasticLoading = false;
+        mTangentStatus = 0;
         mTrialStress = mCommittedStress;
         for (int i = 0; i < 6; ++i)
             for (int j = 0; j < 6; ++j)
@@ -502,13 +670,14 @@ RIVASAND02::setTrialStrain(const Vector &strain)
     riva_update_info_t information = {};
     const int reversalOverride =
         (mReversalLatch && mLatchValid) ? mLatchedReversal : -1;
-    if (!riva_ib_update_material_ex(
+    if (!riva_ib_update_material_reversal_ex(
             &mParameters, &mMaterial, strainIncrementToTensor(increment),
             mFixedSubsteps, &mTrialState, &stress, &information,
-            reversalOverride)) {
+            reversalOverride, mReversalType, mReversalGuard)) {
         mTrialState = mCommittedState;
         mTrialStress = mCommittedStress;
         mTrialStrain = mCommittedStrain;
+        if (mTangentType == 1) updateTrialTangent();
         return -1;
     }
     if (mReversalLatch && !mLatchValid && information.accepted_substeps > 0) {
@@ -523,6 +692,11 @@ RIVASAND02::setTrialStrain(const Vector &strain)
         updateTrialTangent();
         return -1;
     }
+    if (mTangentType == 1)
+        mTrialPlasticLoading=riva_continuum::smoothPlasticStep(
+            mCommittedState.base,mTrialState.base) &&
+            mTrialState.mapping_stress_corrections==mCommittedState.mapping_stress_corrections &&
+            mTrialState.mapping_monotone_caps==mCommittedState.mapping_monotone_caps;
     updateTrialTangent();
     return 0;
 }
@@ -582,6 +756,7 @@ RIVASAND02::getRho(void)
 int
 RIVASAND02::commitState(void)
 {
+    mCommittedPlasticLoading = mTrialPlasticLoading;
     mCommittedStrain = mTrialStrain;
     mCommittedStress = mTrialStress;
     mCommittedState = mTrialState;
@@ -593,6 +768,7 @@ RIVASAND02::commitState(void)
 int
 RIVASAND02::revertToLastCommit(void)
 {
+    mTrialPlasticLoading = mCommittedPlasticLoading;
     mTrialStrain = mCommittedStrain;
     mTrialStress = mCommittedStress;
     mTrialState = mCommittedState;
@@ -605,6 +781,8 @@ RIVASAND02::revertToLastCommit(void)
 int
 RIVASAND02::revertToStart(void)
 {
+    mTrialPlasticLoading = mCommittedPlasticLoading = false;
+    mTangentStatus = 0;
     mStage = mInitialStage;
     mCommittedStrain.Zero();
     mTrialStrain.Zero();
@@ -631,9 +809,16 @@ RIVASAND02::getCopy(const char *code)
 {
     if (std::strcmp(code, "ThreeDimensional") == 0 ||
         std::strcmp(code, "3D") == 0 ||
-        std::strcmp(code, "RIVASAND02") == 0)
+        std::strcmp(code, getClassType()) == 0)
         return getCopy();
     return 0;
+}
+
+const char *
+RIVASAND02::getClassType(void) const
+{
+    return mBranchReversalResearch ?
+        "RIVASAND02BranchReversalResearch" : "RIVASAND02";
 }
 
 const char *
@@ -657,6 +842,12 @@ RIVASAND02::isValid(void) const
 int
 RIVASAND02::sendSelf(int commitTag, Channel &theChannel)
 {
+    if (mReversalType != 1) {
+        opserr << getClassType() << " -reversalType " << mReversalType
+               << ": research checkpoints and channel transfer are disabled"
+               << endln;
+        return -1;
+    }
     Vector data(RIVASerializedSize);
     data.Zero();
     data(0) = this->getTag();
@@ -693,7 +884,9 @@ RIVASAND02::sendSelf(int commitTag, Channel &theChannel)
         (mParameters.field_bias_mean_correction_enabled ?
             RIVAFieldBiasMeanCorrectionFlag : 0) |
         (!mParameters.base.bias_reversible_volume_enabled ?
-            RIVANoBiasVolumeFlag : 0);
+            RIVANoBiasVolumeFlag : 0) |
+        (mTangentType == 1 ? RIVAContinuumTangentFlag : 0) |
+        (mCommittedPlasticLoading ? RIVAPlasticLoadingFlag : 0);
     data(178) = configurationFlags;
     data(179) = mCommittedState.base.geostatic_admitted;
     data(180) = RIVA_IB_KERNEL_REVISION;
@@ -792,16 +985,24 @@ int
 RIVASAND02::recvSelf(int commitTag, Channel &theChannel,
                         FEM_ObjectBroker &theBroker)
 {
+    if (mReversalType != 1) {
+        opserr << getClassType() << " -reversalType " << mReversalType
+               << ": research checkpoints and channel transfer are disabled"
+               << endln;
+        return -1;
+    }
     Vector data(RIVASerializedSize);
     if (theChannel.recvVector(this->getDbTag(), commitTag, data) < 0) {
         opserr << "RIVASAND02::recvSelf failed" << endln;
         return -1;
     }
     if (data.Size() != RIVASerializedSize ||
-        data(182) != RIVAAdapterRevision) {
-        opserr << "RIVASAND02::recvSelf incompatible pre-G0 checkpoint; rerun initialization" << endln;
+        (data(182) != 1 && data(182) != RIVAAdapterRevision)) {
+        opserr << "RIVASAND02::recvSelf incompatible adapter checkpoint" << endln;
         return -1;
     }
+    if (!std::isfinite(data(178)) || data(178)!=std::floor(data(178)) ||
+        data(178)<0 || data(178)>(data(182)==1?15:63)) return -1;
     if (data(180) != RIVA_IB_KERNEL_REVISION) {
         opserr << "RIVASAND02::recvSelf incompatible "
                << "kernel revision " << data(180) << endln;
@@ -819,6 +1020,10 @@ RIVASAND02::recvSelf(int commitTag, Channel &theChannel,
     mParameters.base.p_min = data(175);
     mParameters.base.p_residual = data(177);
     const int configurationFlags = (int)std::llround(data(178));
+    mTangentType=(configurationFlags & RIVAContinuumTangentFlag)?1:0;
+    mTrialPlasticLoading=mCommittedPlasticLoading=
+        (configurationFlags & RIVAPlasticLoadingFlag)!=0;
+    if (mCommittedPlasticLoading && mTangentType==0) return -1;
     mGeostaticAdmission =
         (configurationFlags & RIVAGeostaticAdmissionFlag) != 0;
     mReversalLatch = (configurationFlags & RIVAReversalLatchFlag) != 0;
@@ -875,6 +1080,10 @@ RIVASAND02::getStateVector(void)
 const Vector &
 RIVASAND02::getScalarResponse(int responseID)
 {
+    if (responseID == 22) { mScalarOutput(0)=mReversalGuard; return mScalarOutput; }
+    if (responseID == 21) { mScalarOutput(0)=mReversalType; return mScalarOutput; }
+    if (responseID == 18) { mScalarOutput(0)=mTangentType; return mScalarOutput; }
+    if (responseID == 19) { mScalarOutput(0)=mTangentStatus; return mScalarOutput; }
     if (responseID == 4) {
         mScalarOutput(0) = mTrialState.base.initialized ?
             mTrialState.base.void_ratio : initialVoidRatio();
@@ -918,6 +1127,16 @@ Response *
 RIVASAND02::setResponse(const char **argv, int argc, OPS_Stream &output)
 {
     if (argc < 1) return 0;
+    if (std::strcmp(argv[0], "reversalGuard") == 0)
+        return new MaterialResponse(this, 22, getScalarResponse(22));
+    if (std::strcmp(argv[0], "reversalType") == 0)
+        return new MaterialResponse(this, 21, getScalarResponse(21));
+    if (std::strcmp(argv[0], "TanType") == 0)
+        return new MaterialResponse(this, 18, getScalarResponse(18));
+    if (std::strcmp(argv[0], "tangentStatus") == 0)
+        return new MaterialResponse(this, 19, getScalarResponse(19));
+    if (std::strcmp(argv[0], "tangent") == 0)
+        return new MaterialResponse(this, 20, getTangent());
     if (std::strcmp(argv[0], "G0") == 0)
         return new MaterialResponse(this, 15, getScalarResponse(15));
     if (std::strcmp(argv[0], "Gref") == 0)
@@ -961,6 +1180,9 @@ RIVASAND02::setResponse(const char **argv, int argc, OPS_Stream &output)
 int
 RIVASAND02::getResponse(int responseID, Information &materialInfo)
 {
+    if (responseID == 18 || responseID == 19 || responseID == 21 || responseID == 22)
+        return materialInfo.setVector(getScalarResponse(responseID));
+    if (responseID == 20) return materialInfo.setMatrix(getTangent());
     if (responseID == 1) return materialInfo.setVector(getStress());
     if (responseID == 2) return materialInfo.setVector(getStrain());
     if (responseID == 3) return materialInfo.setVector(getStateVector());
@@ -1025,7 +1247,7 @@ RIVASAND02::updateParameter(int responseID, Information &information)
 void
 RIVASAND02::Print(OPS_Stream &output, int flag)
 {
-    output << "RIVASAND02, tag: " << this->getTag() << endln;
+    output << getClassType() << ", tag: " << this->getTag() << endln;
     output << "  Dr=" << mDr << " G0=" << mG0 << " M=" << mMaterial.M
            << " kd=" << mMaterial.kd << " h=" << mMaterial.h
            << " m=" << mMaterial.m << " zeta=" << mMaterial.zeta
@@ -1038,6 +1260,8 @@ RIVASAND02::Print(OPS_Stream &output, int flag)
            << " pResidual=" << mParameters.base.p_residual
            << " geostaticAdmission="
            << (mGeostaticAdmission ? 1 : 0)
+           << " reversalType=" << mReversalType
+           << " reversalGuard=" << mReversalGuard
            << " reversalLatch=" << (mReversalLatch ? 1 : 0)
            << " BiasVolume=" << getBiasVolumeMode()
            << " fieldBiasVolume="
@@ -1045,5 +1269,6 @@ RIVASAND02::Print(OPS_Stream &output, int flag)
            << " noBiasVolume="
            << (mParameters.base.bias_reversible_volume_enabled ? 0 : 1)
            << " tangentPMin=" << mTangentPressureFloor
+           << " TanType=" << mTangentType
            << " parameterSHA=" << RIVA_IB_PARAMETER_SHA256 << endln;
 }

@@ -16,7 +16,7 @@ details.
 ```tcl
 nDMaterial RIVASand tag Dr G0 M kd h m zeta eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
-    <-pMin value> <-tangentPMin value> <-stage 0|1> \
+    <-pMin value> <-tangentPMin value> <-TanType 0|1> <-stage 0|1> \
     <-initialStress sxx syy szz sxy syz sxz>
 ```
 
@@ -165,6 +165,7 @@ effective-stress state has been established.
 | `-stressScale value` | 1 | Number of analysis stress units per kPa; use 1 for kPa and 1000 for Pa |
 | `-pMin value` | 0.001 kPa multiplied by `stressScale` | Constitutive minimum mean effective pressure; changing it changes the material response and requires revalidation |
 | `-tangentPMin value` | 0.5065 kPa multiplied by `stressScale` | Minimum pressure used only for the tangent returned to OpenSees; it does not change the constitutive stress update |
+| `-TanType 0|1` | `0` | Tangent selector: existing elastic operator (`0`), or safeguarded continuum elastoplastic backbone operator (`1`); dimensionless, not a calibration parameter |
 | `-stage 0|1` | 0 | Stage 0 is elastic gravity/geostatic setup; stage 1 activates RIVA-Sand cyclic behavior |
 | `-initialStress ...` | none | Direct effective-stress initialization in the order `sxx syy szz sxy syz sxz`; if supplied without `-stage`, stage 1 is selected |
 
@@ -236,6 +237,9 @@ The material accepts the following response names:
 | `compatibilityResidual` | Numerical check on volumetric state compatibility |
 | `pressureFloor` | Constitutive pressure floor in the current stress unit |
 | `tangentPressureFloor` | Tangent-only pressure floor in the current stress unit |
+| `TanType` | Selected tangent mode, `0` or `1` |
+| `tangentStatus` | `0`: default/elastic stage; `1`: continuum applied; `2`: inactive plasticity or discrete-event fallback; `3`: regularized/nonsmooth-state fallback |
+| `tangent` | Current 6-by-6 skeleton tangent; engineering shear-strain convention |
 | `stage` | Current material stage, 0 or 1 |
 
 For example, the response of integration point 1 in an element can be queried
@@ -252,10 +256,40 @@ responses through a homogeneous 3D brick.
 
 ## Tangent and convergence considerations
 
-During stage 1, RIVA-Sand returns its current pressure- and state-dependent
-elastic tangent rather than a consistent algorithmic elastoplastic tangent.
-Consequently, strongly nonlinear implicit analyses may require smaller global
-steps and may not exhibit quadratic Newton convergence.
+`-TanType 0` (default) retains the current pressure- and state-dependent
+elastic tangent. `-TanType 1` selects a safeguarded continuum elastoplastic
+**backbone** tangent. The same selector is available for `RIVASAND02`.
+For example, append `-TanType 1` to an otherwise unchanged material command.
+This is a dimensionless solver option, not a soil parameter; it does not
+change G0, constitutive integration, stress corrections, or calibration.
+
+The continuum option accounts for active plastic loading, hardening, and
+deviatoric/volumetric coupling, including the 02 mapping/backstress branch.
+It freezes the auxiliary ratchet and reversible/phase-volume overlays when
+forming the operator. It is therefore an approximate continuum tangent,
+**not** the algorithmically consistent derivative of the full finite,
+substepped stress update. It is not guaranteed to improve every analysis or
+to give quadratic Newton convergence. Continue checking timestep/substeps.
+
+Stage 0 and `getInitialTangent()` stay elastic. Inactive plastic steps,
+steps containing detected reversals/clamps/mapping correction events, and
+states at pressure floors or cone boundaries use the existing elastic
+fallback. `tangentStatus` makes this observable. Tangent queries do not
+advance stress or history. The option is selected at material creation and
+survives copying and database restart. The new reader also accepts the
+preceding G0-aware adapter-revision-1 databases as elastic mode 0; pre-G0
+databases remain incompatible. Older executables cannot read revision 2.
+
+Use a solver that supports a nonsymmetric matrix, such as `BandGeneral` or
+`UmfPack`; do not symmetrize the tangent or use an SPD-only solver. It is
+the effective **skeleton** tangent: U–P elements retain ownership of fluid
+compressibility and pressure coupling. Changing the tangent also changes
+current-/committed-stiffness-proportional Rayleigh damping if those terms
+are enabled; keep that distinction explicit in comparisons. This option is
+not a control for reducing physical pore-pressure oscillations.
+
+See [continuum-tangent validation](CONTINUUM_TANGENT_VALIDATION.md) for the
+completed checks, convergence improvements, and retained failure cases.
 
 At very low confinement, avoid combining a nearly vanishing tangent with an
 unnecessarily large penalty constraint. Prefer the `Transformation` constraint

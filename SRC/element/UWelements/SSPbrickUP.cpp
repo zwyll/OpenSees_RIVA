@@ -409,9 +409,12 @@ SSPbrickUP::update(void)
 	// compute strain and send it to the material
 	Vector strain(6);
 	strain = Bnot*u;
-	theMaterial->setTrialStrain(strain);
-
-	return 0;
+	int result = theMaterial->setTrialStrain(strain);
+    if (result != 0) {
+        opserr << "SSPbrickUP::update() - material rejected trial strain in element "
+               << this->getTag() << endln;
+    }
+	return result;
 }
 
 const Matrix &
@@ -482,7 +485,7 @@ SSPbrickUP::getDamp(void)
 	} if (betaK0 != 0.0) {
     	dampC.addMatrix(1.0, mSolidK, betaK0);
 	} if (betaKc != 0.0) {
-    	dampC.addMatrix(1.0, mSolidK, betaKc);
+		dampC.addMatrix(1.0, mSolidK, betaKc);
 	}
 
 	// compute coupling matrix Q

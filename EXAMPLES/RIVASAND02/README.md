@@ -5,6 +5,14 @@
 identifies this successor; it does not refer to the historical PJ-Liq V2 model.
 The original `RIVASand` material remains available separately.
 
+The opt-in `-reversalType` selects the earlier, loading-branch-reference,
+or host-increment UMAT-type reversal rule. Types 2 and 3 are research modes.
+The separately named built-in `RIVASAND02BranchReversalResearch` remains
+available and is equivalent to `RIVASAND02 -reversalType 2`.
+See [column numerical corrections and validation](COLUMN_NUMERICS_VALIDATION.md)
+for its command, restrictions, regression tests, retained SSPbrickUP failure
+propagation, and the removal of the committed-stiffness damping change.
+
 The old command RIVASandIntermediateBiasResearch is no longer registered.
 The current command requires twelve material values: insert dimensionless
 G0 immediately after Dr (reference: 483.48301127222084). Pre-G0 inputs and databases
@@ -36,8 +44,10 @@ it is intentionally incompatible with revision-3 restart files.
 nDMaterial RIVASAND02 tag Dr G0 M kd h m zeta \
     eMax eMin Q R nG \
     <-rho value> <-nSub integer> <-stressScale value> \
-    <-pMin value> <-tangentPMin value> <-pResidual value> \
-    <-geostaticAdmission> <-reversalLatch> <-BiasVolume 0|1|2> \
+    <-pMin value> <-tangentPMin value> <-TanType 0|1> <-pResidual value> \
+    <-geostaticAdmission> <-reversalType 1|2|3> <-reversalLatch> \
+    <-reversalGuard value> \
+    <-BiasVolume 0|1|2> \
     <-stage 0|1|2> \
     <-initialStress sxx syy szz sxy syz sxz>
 ```
@@ -60,6 +70,68 @@ nDMaterial RIVASAND02 8001 \
 Use `-stressScale 1.0` when the OpenSees stress unit is kPa and
 `-stressScale 1000.0` when it is Pa. `-nSub` selects fixed constitutive
 substeps per host strain increment.
+
+`-reversalType` is an integer selected at material creation:
+
+| Value | Reversal rule |
+|---|---|
+| `1` (default) | Earlier model: compare the trial strain-increment direction with the preceding committed increment direction |
+| `2` | Reversal-reference research model: compare against accumulated loading-branch strain |
+| `3` | UMAT-type research model: evaluate the stress-ratio predictor rule once for the full trial increment |
+
+All three make one decision before constitutive substepping and apply any
+reversal reset in the first substep. With the latch disabled, each Newton
+trial recomputes that decision from the committed material state. This does
+not freeze the decision across Newton iterations. Type 3 preserves the
+tested host-increment variant's strain-based initialization until cyclic
+activation, followed by its literal UMAT-type rule unless the separate
+research eligibility guard below is explicitly enabled.
+
+Existing `RIVASAND02` inputs retain type 1. The older
+`RIVASAND02BranchReversalResearch` command retains type 2 and accepts only
+`-reversalType 2` if the option is supplied explicitly. Identical repeated
+selections are allowed; conflicting, missing, fractional, and out-of-range
+values are rejected. The selection cannot be changed with `updateParameter`.
+
+Material copies retain the selection. Query it using
+`eleResponse $eleTag reversalType` for `SSPbrickUP`, or
+`eleResponse $eleTag material 1 reversalType` for `bbarBrick`.
+Type 1 retains its existing database format and latch support. Types 2 and 3
+reject `-reversalLatch` and disable checkpoint/channel transfer; they must
+be rerun from initialization. Their calibration, mesh/timestep objectivity,
+and coupled-analysis convergence remain research limitations. Selecting
+a reversal rule does not select or modify element damping.
+
+`-reversalGuard value` adds an opt-in eligibility guard to type 3.
+Its default is `0` (off), preserving
+all three existing reversal rules. A positive, finite, dimensionless value
+is accepted only with `-reversalType 3`. For the tested research setting,
+append `-reversalType 3 -reversalGuard 0.0001` to a complete material command.
+The value sets the minimum pressure-normalized stress excursion since the
+last reversal before another event is eligible. The inherited tiny-strain
+cutoff also applies when the guard is enabled. It is evaluated once per
+trial increment from committed history; it does not latch Newton iterations.
+
+Copies preserve this material-specific setting. Query `reversalGuard` using
+the same element response syntax as `reversalType`. Conflicting duplicate,
+negative, nonfinite, missing and nonnumeric values are rejected. The option
+cannot be changed during analysis. Type-3 latch and checkpoint restrictions
+remain in force. The guard is a research event rule: it reduces tiny-loading
+switching in tested cases but does not establish full-duration convergence,
+mesh/timestep independence or a better experimental fit. See
+[guard usage and validation](REVERSAL_GUARD_VALIDATION.md).
+
+`-TanType 0` (default) preserves the elastic tangent. `-TanType 1` selects
+the safeguarded continuum elastoplastic backbone tangent, including the
+mapping/backstress branch. It does not change stress integration or any
+BiasVolume mode, and it is not a fully consistent algorithmic tangent of
+the research overlays/substeps. Stage 0 and the initial tangent remain
+elastic. Use a nonsymmetric-capable system solver. The selector and
+committed tangent-activity flag survive copying/restart in adapter revision
+2; the 139-value kernel state remains revision 4. The reader also accepts
+the preceding G0-aware adapter-revision-1 checkpoints as elastic mode 0.
+See [usage and safeguards](../RIVASand/RIVASand_USER_GUIDE.md#tangent-and-convergence-considerations)
+and [validation](../RIVASand/CONTINUUM_TANGENT_VALIDATION.md).
 
 `-BiasVolume` is a dimensionless integer selector for the three existing
 biased-volume behaviors. Omitting it is exactly equivalent to `-BiasVolume 0`.
@@ -88,7 +160,7 @@ eleResponse $eleTag material 1 BiasVolume
 For `SSPbrickUP`, use `eleResponse $eleTag BiasVolume`. The existing
 `noBiasVolume` and `fieldBiasVolume` boolean responses are also retained.
 
-`-reversalLatch` is an opt-in OpenSees iteration stabilizer for dynamic
+`-reversalLatch` is available only with reversal type 1. It is an opt-in OpenSees iteration stabilizer for dynamic
 research analyses. It makes one host-level reversal decision on the first
 accepted material evaluation of a load step and reuses that decision during
 subsequent Newton trial evaluations. The transient decision is cleared on
@@ -230,3 +302,24 @@ c++ -std=c++17 -O2 \
   -o RIVASAND02KernelStateTest
 ./RIVASAND02KernelStateTest
 ```
+
+The state-contract test also checks once-per-increment reversal scheduling
+at nSub = 1, 4, 16, and 40 for all three reversal types. The column regression
+runner includes `reversal_types.tcl`, which checks selector parsing, default
+and alias equivalence, material copies, full-state rollback, replacement of
+speculative trials, tangent-choice independence of prescribed stress/state
+histories, and the research-mode restrictions. See
+[the column validation instructions](COLUMN_NUMERICS_VALIDATION.md) to run
+it with a built OpenSees executable and the diagnostic probe. These checks
+verify the implementation contracts; they do not establish convergence of
+the sloping-ground analysis.
+
+The selector integration was also compared with the saved earlier and
+branch-reference implementations at commit `e97c12fbc`, and with the saved
+literal host-increment UMAT research build. Each rule covered 24 prescribed
+rotating/changing-pressure cases: Pa/kPa, direct cyclic activation or
+geostatic-to-dynamic activation, all three BiasVolume modes, and both tangent
+types. Across 6,240 accepted states per rule, types 1 and 2 matched exactly.
+Type 3 matched all stresses and the first 138 state entries exactly; its
+remaining activity entry differed by at most `1.11e-16`. No full-duration
+slope convergence or new parameter calibration is claimed by this comparison.
