@@ -63,7 +63,49 @@ were byte-identical to the parent for each reversal type: 24 cases and
 6,240 accepted states per type. At guard 0.0001, all stresses, the first
 138 state entries and tangent-status values matched the archived prototype
 exactly in another 24 cases; the last activity entry differed by at most
-1.11e-16. No new full-duration free-field or CDSS fit is claimed by this port.
+1.11e-16. These port checks did not establish a new calibration or CDSS fit.
+
+## Native free-field initialization check (2026-09-28)
+
+A subsequent fixed-parameter three-layer free-field comparison uses the
+current type-1 calibrated coefficients, `-nSub 40`, `-TanType 0`, no latch,
+and NewmarkExplicit 0.5 / Linear. Gravity and the final ten settling steps
+remain elastic. Nonlinear activation is followed by five seconds with no
+earthquake excitation, using the dynamic permeability and damping settings.
+The earthquake is admitted only after the equilibrium check passes, with
+the committed material state and pressure integral preserved.
+
+At both 0.00125 and 0.000625 s, types 1 and 2 and guarded type 3 have zero
+new reversals during the hold. All 139 material-state entries are identical
+across those passing variants at each timestep, both before and after the
+hold. Maximum relative shear-stiffness drift is below 4e-10. Unguarded type 3
+instead accumulates 2,916 / 4,539 reversals and retains only 15% of its initial
+shear stiffness. The guard-off executable reproduces the parent hold
+byte-for-byte. Elastic settling alone therefore does not remove the
+unguarded type-3 startup defect in this case.
+
+The initialization screen checks all nodes and elements at every step:
+displacement 1e-7 m, velocity 1e-7 m/s, acceleration 1e-5 m/s2, pressure and
+stress change 1e-4 kPa, strain change 1e-8, zero new reversals, and relative
+shear-stiffness change 1e-4. These limits screen stationary initialization;
+they are not a coupled-response convergence criterion.
+
+Type 2 and guarded type 3 each complete the subsequent 70-second measured
+earthquake at both timesteps, with no failed steps or material rejections.
+Spectra use the native acceleration samples. With the finer run as reference:
+
+| Rule | Largest sensor PGA difference | Largest sensor Sa log-RMS difference | Largest pressure-peak difference | Largest normalized pressure-history RMS difference |
+|---|---:|---:|---:|---:|
+| Type 2 | 11.452% | 0.108386 | 0.277% | 0.432% |
+| Type 3, guard 0.0001 | 7.564% | 0.065729 | 0.720% | 0.290% |
+
+Both fail the all-sensor screen (5% for PGA and pressure, ln(1.05) for
+spectral log RMS), with the largest acceleration discrepancy at 8.7 m depth.
+Experimental fit remains similar; no parameters were refitted. Linear
+explicit stepping does not provide a nonlinear residual-convergence test.
+The guard is useful for this initialization procedure, but this evidence
+does not establish earthquake timestep independence or a new accepted
+calibration. Raw histories and the detailed research report remain local.
 
 ## Limits
 

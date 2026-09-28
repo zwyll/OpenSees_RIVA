@@ -102,8 +102,8 @@ be rerun from initialization. Their calibration, mesh/timestep objectivity,
 and coupled-analysis convergence remain research limitations. Selecting
 a reversal rule does not select or modify element damping.
 
-On `research/rivasand02-reversal-guard`, `-reversalGuard value` adds an
-opt-in eligibility guard to type 3. Its default is `0` (off), preserving
+`-reversalGuard value` adds an opt-in eligibility guard to type 3.
+Its default is `0` (off), preserving
 all three existing reversal rules. A positive, finite, dimensionless value
 is accepted only with `-reversalType 3`. For the tested research setting,
 append `-reversalType 3 -reversalGuard 0.0001` to a complete material command.
